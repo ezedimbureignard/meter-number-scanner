@@ -1,11 +1,13 @@
-import * as XLSX from "xlsx";
 import type { MeterScan, ColumnConfig } from "./types";
 import { STATUS_LABELS } from "./types";
 
 /**
  * Export scans to an .xlsx file and trigger a download.
+ * Uses dynamic import so xlsx is only loaded in the browser.
  */
-export function exportToExcel(scans: MeterScan[], columns: ColumnConfig) {
+export async function exportToExcel(scans: MeterScan[], columns: ColumnConfig) {
+  const XLSX = await import("xlsx");
+
   const rows = scans.map((s) => ({
     [columns.meterSerial]: s.meterSerial,
     [columns.dcuId]: s.dcuId,
@@ -26,7 +28,6 @@ export function exportToExcel(scans: MeterScan[], columns: ColumnConfig) {
     ],
   });
 
-  // Auto-size columns
   const colWidths = [
     columns.meterSerial,
     columns.dcuId,
