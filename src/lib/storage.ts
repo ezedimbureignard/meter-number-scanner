@@ -42,7 +42,7 @@ export function updateScan(id: string, updates: Partial<MeterScan>): MeterScan[]
   const scans = getScans();
   const idx = scans.findIndex((s) => s.id === id);
   if (idx !== -1) {
-    scans[idx] = { ...scans[idx], ...updates };
+    scans[idx] = { ...scans[idx], ...updates } as MeterScan;
     saveScans(scans);
   }
   return scans;
