@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Camera, CameraOff, Keyboard, KeyboardClose } from "lucide-react";
+import { Camera, CameraOff, Keyboard, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { playBeep } from "@/lib/sound";
@@ -15,7 +15,7 @@ export function BarcodeScanner({
   soundEnabled,
   vibrateOnScan,
 }: BarcodeScannerProps) {
-  const scannerRef = useRef<{ stop: () => Promise<void>; clear: () => void } | null>(null);
+  const scannerRef = useRef<any>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
@@ -139,7 +139,7 @@ export function BarcodeScanner({
           onClick={() => setShowManual(!showManual)}
         >
           {showManual ? (
-            <KeyboardClose className="h-4 w-4" />
+            <X className="h-4 w-4" />
           ) : (
             <Keyboard className="h-4 w-4" />
           )}
