@@ -131,7 +131,7 @@ function ScanPage() {
         const existing = getDCUs();
         for (const name of result.dcus) {
           if (!existing.some((d) => d.id === name)) {
-            addDCU({ id: name, name, location: "" });
+            addDCU({ id: name, name });
           }
         }
         setDcus(getDCUs());
@@ -248,7 +248,7 @@ function ScanPage() {
   const handleAddDcu = () => {
     const name = newDcuName.trim();
     if (!name) return;
-    addDCU({ id: name, name, location: "" });
+    addDCU({ id: name, name });
     setDcus(getDCUs());
     if (mode === "bulk") setBulkDcuId(name);
     else setDcuId(name);
