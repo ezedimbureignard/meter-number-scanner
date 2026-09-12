@@ -33,7 +33,10 @@ import {
   addDCU,
   createScan,
 } from "@/lib/storage";
-import { fetchSheetData } from "@/lib/sheets.functions";
+import {
+  checkSheetsConnection,
+  fetchSheetData,
+} from "@/lib/sheets.functions";
 import { normalizeSerial, extractSerial } from "@/lib/serial";
 import { STATUS_LABELS } from "@/lib/types";
 import type {
@@ -79,6 +82,7 @@ export const Route = createFileRoute("/")({
 function ScanPage() {
   const hydrated = useHydrated();
   const loadSheet = useServerFn(fetchSheetData);
+  const checkSheetConnection = useServerFn(checkSheetsConnection);
 
   const [scannedSerial, setScannedSerial] = useState("");
   const [dcuId, setDcuId] = useState("");
@@ -166,6 +170,15 @@ function ScanPage() {
       setSheetLoading(true);
       setSheetError(null);
       try {
+        const connection = await checkSheetConnection();
+        if (!connection.connected) {
+          const message =
+            "Google Sheets is not connected. Link it in Lovable before syncing.";
+          setSheetError(message);
+          if (!silent) toast.error("Google Sheets not connected", { description: message });
+          return;
+        }
+
         const result = await loadSheet({
           data: { spreadsheetId: s.spreadsheetId, sheetName: s.sheetName },
         });
@@ -201,7 +214,7 @@ function ScanPage() {
         setSheetLoading(false);
       }
     },
-    [loadSheet],
+    [checkSheetConnection, loadSheet],
   );
 
   useEffect(() => {
