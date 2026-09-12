@@ -37,7 +37,14 @@ import { fetchSheetData } from "@/lib/sheets.functions";
 import { normalizeSerial, extractSerial } from "@/lib/serial";
 import { STATUS_LABELS } from "@/lib/types";
 import type { MeterScan, DCU, AppSettings, ScanStatus } from "@/lib/types";
-import { Boxes, CheckCircle2, Plus } from "lucide-react";
+import {
+  Boxes,
+  CheckCircle2,
+  Plus,
+  AlertTriangle,
+  RefreshCw,
+  CloudOff,
+} from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -79,18 +86,31 @@ function ScanPage() {
   const [bulkCount, setBulkCount] = useState(0);
   const [totalScans, setTotalScans] = useState(0);
   const [totalBoxes, setTotalBoxes] = useState(0);
+
+  // Google Sheet state
+  const [sheetSerials, setSheetSerials] = useState<Set<string>>(new Set());
+  const [sheetLoading, setSheetLoading] = useState(false);
+  const [sheetError, setSheetError] = useState<string | null>(null);
+
+  // Dialogs
+  const [duplicate, setDuplicate] = useState<{
+    serial: string;
+    where: string;
+  } | null>(null);
+  const [addDcuOpen, setAddDcuOpen] = useState(false);
+  const [newDcuName, setNewDcuName] = useState("");
+
   const lastScanTime = useRef(0);
 
-  useEffect(() => {
-    if (hydrated) {
-      const scans = getScans();
-      setRecentScans(scans.slice(0, 5));
-      setTotalScans(scans.length);
-      setTotalBoxes(new Set(scans.map((s) => s.boxId)).size);
-      setDcus(getDCUs());
-      setSettings(getSettings());
-    }
-  }, [hydrated]);
+  const localSerials = useMemo(
+    () => new Set(getScansSafe().map((s) => normalizeSerial(s.meterSerial))),
+    [totalScans, hydrated],
+  );
+
+  function getScansSafe(): MeterScan[] {
+    if (typeof window === "undefined") return [];
+    return getScans();
+  }
 
   const refreshRecent = () => {
     const scans = getScans();
@@ -220,11 +240,23 @@ function ScanPage() {
       toast.error("Enter a carton number");
       return;
     }
-    const scan = createScan(scannedSerial.trim(), dcuId, boxId.trim(), status);
-    addScan(scan);
+    if (!checkDuplicate(serial)) return;
+    addScan(createScan(serial, dcuId, boxId.trim(), status));
     refreshRecent();
     toast.success("Scan saved", { description: serial });
     setScannedSerial("");
+  };
+
+  const handleAddDcu = () => {
+    const name = newDcuName.trim();
+    if (!name) return;
+    addDCU({ id: name, name });
+    setDcus(getDCUs());
+    if (mode === "bulk") setBulkDcuId(name);
+    else setDcuId(name);
+    setNewDcuName("");
+    setAddDcuOpen(false);
+    toast.success("DCU added", { description: name });
   };
 
   if (!hydrated || !settings) {
