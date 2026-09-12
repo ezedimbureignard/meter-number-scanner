@@ -97,7 +97,7 @@ export function getDefaultSettings(): AppSettings {
     autoScan: false,
     vibrateOnScan: true,
     spreadsheetId: "1cOFjCoh29CH7_Vsdc-plSrvP93eVXfoB2lEDiJPk8ps",
-    sheetName: "Sheet1",
+    sheetName: "Transfered to Office",
     columnConfig: {
       meterSerial: "Meter Serial Number",
       dcuId: "DCU ID",
