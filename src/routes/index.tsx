@@ -36,7 +36,14 @@ import {
 import { fetchSheetData } from "@/lib/sheets.functions";
 import { normalizeSerial, extractSerial } from "@/lib/serial";
 import { STATUS_LABELS } from "@/lib/types";
-import type { MeterScan, DCU, AppSettings, ScanStatus } from "@/lib/types";
+import type {
+  MeterScan,
+  DCU,
+  AppSettings,
+  CartonManifest,
+  ScanSession,
+  ScanStatus,
+} from "@/lib/types";
 import {
   Boxes,
   CheckCircle2,
@@ -86,6 +93,8 @@ function ScanPage() {
   const [bulkCount, setBulkCount] = useState(0);
   const [totalScans, setTotalScans] = useState(0);
   const [totalBoxes, setTotalBoxes] = useState(0);
+  const [sessions, setSessions] = useState<ScanSession[]>([]);
+  const [manifests, setManifests] = useState<CartonManifest[]>([]);
 
   // Google Sheet state
   const [sheetSerials, setSheetSerials] = useState<Set<string>>(new Set());
@@ -107,6 +116,37 @@ function ScanPage() {
     [totalScans, hydrated],
   );
 
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === settings?.activeSessionId),
+    [sessions, settings?.activeSessionId],
+  );
+
+  const activeCarton = useMemo(() => {
+    const currentBoxId = mode === "bulk" ? bulkBoxId : boxId;
+    const manifest = manifests.find((item) => item.boxId === currentBoxId);
+    if (!manifest) return null;
+
+    const scannedSerials = new Set(
+      getScansSafe()
+        .filter((scan) => scan.boxId === manifest.boxId)
+        .map((scan) => normalizeSerial(scan.meterSerial)),
+    );
+    const expectedSerials = new Set(
+      manifest.expectedSerials.map(normalizeSerial),
+    );
+    const found = [...expectedSerials].filter((serial) => scannedSerials.has(serial)).length;
+    const unexpected = [...scannedSerials].filter(
+      (serial) => !expectedSerials.has(serial),
+    ).length;
+
+    return {
+      expected: expectedSerials.size,
+      found,
+      missing: expectedSerials.size - found,
+      unexpected,
+    };
+  }, [boxId, bulkBoxId, manifests, mode, totalScans]);
+
   function getScansSafe(): MeterScan[] {
     if (typeof window === "undefined") return [];
     return getScans();
@@ -117,6 +157,8 @@ function ScanPage() {
     setRecentScans(scans.slice(0, 5));
     setTotalScans(scans.length);
     setTotalBoxes(new Set(scans.map((s) => s.boxId)).size);
+    setSessions(getSessions());
+    setManifests(getManifests());
   };
 
   const syncDcusFromSheet = useCallback(
@@ -168,6 +210,8 @@ function ScanPage() {
     setDcus(getDCUs());
     const s = getSettings();
     setSettings(s);
+    setSessions(getSessions());
+    setManifests(getManifests());
     void syncDcusFromSheet(s, true);
   }, [hydrated, syncDcusFromSheet]);
 
@@ -241,7 +285,7 @@ function ScanPage() {
       return;
     }
     if (!checkDuplicate(serial)) return;
-    addScan(createScan(serial, dcuId, boxId.trim(), status));
+    addScan(createScan(serial, dcuId, boxId.trim(), status, "", activeSession?.id));
     refreshRecent();
     toast.success("Scan saved", { description: serial });
     setScannedSerial("");
