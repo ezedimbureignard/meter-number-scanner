@@ -1,8 +1,10 @@
-import type { MeterScan, DCU, AppSettings, ColumnConfig } from "./types";
+import type { MeterScan, DCU, AppSettings, ScanSession, CartonManifest } from "./types";
 
 const SCANS_KEY = "metertrack_scans";
 const DCUS_KEY = "metertrack_dcus";
 const SETTINGS_KEY = "metertrack_settings";
+const SESSIONS_KEY = "metertrack_sessions";
+const MANIFESTS_KEY = "metertrack_manifests";
 
 function read<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -62,6 +64,51 @@ export function deleteScansByBox(boxId: string): MeterScan[] {
 
 export function clearAllScans() {
   saveScans([]);
+}
+
+/* ── Sessions ── */
+
+export function getSessions(): ScanSession[] {
+  return read<ScanSession[]>(SESSIONS_KEY, []);
+}
+
+export function saveSessions(sessions: ScanSession[]) {
+  write(SESSIONS_KEY, sessions);
+}
+
+export function addSession(session: ScanSession) {
+  const sessions = [session, ...getSessions()];
+  saveSessions(sessions);
+  return sessions;
+}
+
+export function updateSession(id: string, updates: Partial<ScanSession>) {
+  const sessions = getSessions().map((session) =>
+    session.id === id ? { ...session, ...updates } : session,
+  );
+  saveSessions(sessions);
+  return sessions;
+}
+
+/* ── Carton manifests ── */
+
+export function getManifests(): CartonManifest[] {
+  return read<CartonManifest[]>(MANIFESTS_KEY, []);
+}
+
+export function saveManifest(manifest: CartonManifest) {
+  const manifests = getManifests();
+  const existing = manifests.findIndex((item) => item.boxId === manifest.boxId);
+  if (existing === -1) manifests.unshift(manifest);
+  else manifests[existing] = manifest;
+  write(MANIFESTS_KEY, manifests);
+  return manifests;
+}
+
+export function deleteManifest(id: string) {
+  const manifests = getManifests().filter((item) => item.id !== id);
+  write(MANIFESTS_KEY, manifests);
+  return manifests;
 }
 
 /* ── DCUs ── */
@@ -125,6 +172,7 @@ export function createScan(
   boxId: string,
   status: MeterScan["status"] = "assigned",
   notes = "",
+  sessionId?: string,
 ): MeterScan {
   return {
     id: crypto.randomUUID(),
@@ -134,5 +182,6 @@ export function createScan(
     scanDateTime: new Date().toISOString(),
     status,
     notes,
+    ...(sessionId ? { sessionId } : {}),
   };
 }

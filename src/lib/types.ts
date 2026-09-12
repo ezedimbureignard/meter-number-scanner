@@ -8,6 +8,25 @@ export interface MeterScan {
   scanDateTime: string;
   status: ScanStatus;
   notes?: string;
+  sessionId?: string;
+}
+
+export interface ScanSession {
+  id: string;
+  operator: string;
+  site: string;
+  shift: string;
+  notes?: string;
+  startedAt: string;
+  endedAt?: string;
+}
+
+export interface CartonManifest {
+  id: string;
+  boxId: string;
+  dcuId: string;
+  expectedSerials: string[];
+  createdAt: string;
 }
 
 export interface DCU {
@@ -31,6 +50,7 @@ export interface AppSettings {
   spreadsheetId: string;
   sheetName: string;
   columnConfig: ColumnConfig;
+  activeSessionId?: string;
 }
 
 export const STATUS_LABELS: Record<ScanStatus, string> = {

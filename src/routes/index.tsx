@@ -18,11 +18,13 @@ import {
   getScans,
   getDCUs,
   getSettings,
+  getSessions,
+  getManifests,
   addScan,
   createScan,
 } from "@/lib/storage";
 import { STATUS_LABELS } from "@/lib/types";
-import type { MeterScan, DCU, AppSettings, ScanStatus } from "@/lib/types";
+import type { MeterScan, DCU, AppSettings, ScanStatus, ScanSession, CartonManifest } from "@/lib/types";
 import { Boxes, CheckCircle2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -59,6 +61,8 @@ function ScanPage() {
   const [bulkCount, setBulkCount] = useState(0);
   const [totalScans, setTotalScans] = useState(0);
   const [totalBoxes, setTotalBoxes] = useState(0);
+  const [activeSession, setActiveSession] = useState<ScanSession | null>(null);
+  const [manifests, setManifests] = useState<CartonManifest[]>([]);
   const lastScanTime = useRef(0);
 
   useEffect(() => {
@@ -69,6 +73,9 @@ function ScanPage() {
       setTotalBoxes(new Set(scans.map((s) => s.boxId)).size);
       setDcus(getDCUs());
       setSettings(getSettings());
+      const savedSettings = getSettings();
+      setActiveSession(getSessions().find((session) => session.id === savedSettings.activeSessionId) ?? null);
+      setManifests(getManifests());
     }
   }, [hydrated]);
 
@@ -86,7 +93,7 @@ function ScanPage() {
       lastScanTime.current = now;
 
       if (mode === "bulk" && bulkBoxId && bulkDcuId) {
-        const scan = createScan(text, bulkDcuId, bulkBoxId);
+        const scan = createScan(text, bulkDcuId, bulkBoxId, "assigned", "", activeSession?.id);
         addScan(scan);
         const newCount = bulkCount + 1;
         setBulkCount(newCount);
@@ -103,7 +110,7 @@ function ScanPage() {
         setScannedSerial(text);
         toast.success("Barcode detected", { description: text });
         if (settings?.autoScan && dcuId && boxId) {
-          const scan = createScan(text, dcuId, boxId, status);
+          const scan = createScan(text, dcuId, boxId, status, "", activeSession?.id);
           addScan(scan);
           refreshRecent();
           toast.success("Auto-saved", { description: text });
@@ -111,7 +118,7 @@ function ScanPage() {
         }
       }
     },
-    [mode, bulkBoxId, bulkDcuId, bulkCount, settings, dcuId, boxId, status],
+    [mode, bulkBoxId, bulkDcuId, bulkCount, settings, dcuId, boxId, status, activeSession],
   );
 
   const handleSave = () => {
@@ -127,12 +134,24 @@ function ScanPage() {
       toast.error("Enter a box ID");
       return;
     }
-    const scan = createScan(scannedSerial.trim(), dcuId, boxId.trim(), status);
+    const scan = createScan(scannedSerial.trim(), dcuId, boxId.trim(), status, "", activeSession?.id);
     addScan(scan);
     refreshRecent();
     toast.success("Scan saved", { description: scannedSerial });
     setScannedSerial("");
   };
+
+  const cartonProgress = (currentBoxId: string) => {
+    const manifest = manifests.find((item) => item.boxId === currentBoxId);
+    if (!manifest) return null;
+    const scanned = getScans().filter((scan) => scan.boxId === currentBoxId);
+    const found = new Set(scanned.map((scan) => scan.meterSerial));
+    const missing = manifest.expectedSerials.filter((serial) => !found.has(serial)).length;
+    const unexpected = scanned.filter((scan) => !manifest.expectedSerials.includes(scan.meterSerial)).length;
+    return { expected: manifest.expectedSerials.length, found: found.size, missing, unexpected };
+  };
+
+  const activeCarton = cartonProgress(mode === "bulk" ? bulkBoxId : boxId);
 
   if (!hydrated || !settings) {
     return (
@@ -171,6 +190,11 @@ function ScanPage() {
             </TabsTrigger>
           </TabsList>
         </Tabs>
+
+        <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2 text-xs">
+          <span className="text-muted-foreground">Scan session</span>
+          <span className="font-medium">{activeSession ? `${activeSession.operator} · ${activeSession.site}` : "No active session"}</span>
+        </div>
 
         <BarcodeScanner
           onScan={handleScan}
@@ -295,6 +319,13 @@ function ScanPage() {
             >
               Reset Counter
             </Button>
+          </div>
+        )}
+
+        {activeCarton && (
+          <div className={`rounded-lg border p-3 text-sm ${activeCarton.missing || activeCarton.unexpected ? "border-amber-500/30 bg-amber-500/10" : "border-primary/30 bg-primary/10"}`}>
+            <p className="font-medium">Carton check: {activeCarton.found}/{activeCarton.expected} expected serials scanned</p>
+            <p className="mt-1 text-xs text-muted-foreground">{activeCarton.missing ? `${activeCarton.missing} still missing` : "No serials missing"}{activeCarton.unexpected ? ` · ${activeCarton.unexpected} unexpected` : ""}</p>
           </div>
         )}
 

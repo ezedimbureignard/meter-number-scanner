@@ -10,7 +10,7 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
-import { ScanLine, Table, Settings as SettingsIcon } from "lucide-react";
+import { ScanLine, Table, Settings as SettingsIcon, ChartNoAxesCombined } from "lucide-react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -83,6 +83,7 @@ function BottomNav() {
   const tabs = [
     { to: "/" as const, label: "Scan", icon: ScanLine },
     { to: "/inventory" as const, label: "Inventory", icon: Table },
+    { to: "/operations" as const, label: "Operations", icon: ChartNoAxesCombined },
     { to: "/settings" as const, label: "Settings", icon: SettingsIcon },
   ];
   return (
