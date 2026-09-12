@@ -9,13 +9,10 @@
 - Google Sheets sync server function
 - Settings: DCU management, column naming, scan toggles, clear data
 
-## In progress
-- Link Google Sheets connector to project
-
-## New requests (2026-09-11)
-- [ ] Scanner: flashlight/torch toggle for low light
-- [ ] Scanner: use best rear camera + higher resolution constraints
-- [ ] Duplicate detection: flag already-scanned serials with error message
-- [ ] Fix DCU dropdown (not working)
-- [ ] Pull DCU list from the Google Sheet
-- [ ] Plus button to add a new DCU inline from the scan screen
+- Google Sheets connector linked (live: 899 meters, 5 DCUs)
+- Scanner flashlight/torch toggle + camera switcher
+- Best rear camera selection, 1080p + continuous focus
+- Duplicate detection against sheet + device, with red error dialog
+- DCU dropdown fixed, populated from the sheet's DCU Location column
+- Plus button to add a new DCU inline
+- Sheet writes match the real layout (Carton No. | Meter Number | DCU Location)

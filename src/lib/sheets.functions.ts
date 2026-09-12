@@ -7,7 +7,7 @@ function getAuthHeaders() {
   const apiKey = process.env["LOVABLE_API_KEY"];
   const connectionKey = process.env["GOOGLE_SHEETS_API_KEY"];
   if (!apiKey || !connectionKey) {
-    throw new Error("Google Sheets not connected. Link the connector in Settings.");
+    throw new Error("Google Sheets is not connected yet.");
   }
   return {
     Authorization: `Bearer ${apiKey}`,
@@ -28,70 +28,119 @@ export const checkSheetsConnection = createServerFn({ method: "GET" }).handler(
   },
 );
 
-/** Append scans to the configured Google Sheet. Adds a header row if the sheet is empty. */
+const sheetRefSchema = z.object({
+  spreadsheetId: z.string(),
+  sheetName: z.string(),
+});
+
+/**
+ * Pull the DCU list, existing meter serials, and last carton number
+ * straight from the spreadsheet.
+ * Sheet layout: A = Carton No., B = Meter Number, C = DCU Location.
+ */
+export const fetchSheetData = createServerFn({ method: "POST" })
+  .inputValidator((data) => sheetRefSchema.parse(data))
+  .handler(async ({ data }) => {
+    const headers = getAuthHeaders();
+    const { spreadsheetId, sheetName } = data;
+
+    const range = `${sheetName}!A1:C5000`;
+    const url = `${GATEWAY_URL}/spreadsheets/${spreadsheetId}/values/${range}`;
+    const response = await fetch(url, { headers });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`Sheets read failed [${response.status}]: ${errorBody}`);
+      throw new Error(`Could not read the sheet [${response.status}]`);
+    }
+
+    const result = (await response.json()) as { values?: string[][] };
+    const rows = result.values ?? [];
+
+    const dcus: string[] = [];
+    const serials: string[] = [];
+    const cartons: string[] = [];
+
+    // Skip the header row
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i] ?? [];
+      const carton = (row[0] ?? "").trim();
+      const serial = (row[1] ?? "").trim();
+      const dcu = (row[2] ?? "").trim();
+
+      if (dcu && !dcus.includes(dcu)) dcus.push(dcu);
+      if (serial) serials.push(serial);
+      if (carton && !cartons.includes(carton)) cartons.push(carton);
+    }
+
+    const numericCartons = cartons
+      .map((c) => parseInt(c, 10))
+      .filter((n) => !Number.isNaN(n));
+    const lastCarton = numericCartons.length ? Math.max(...numericCartons) : 0;
+
+    return { dcus, serials, lastCarton, rowCount: rows.length };
+  });
+
+/**
+ * Append scans to the sheet using its native layout:
+ * carton number only on the first row of each carton group.
+ */
 export const syncToSheets = createServerFn({ method: "POST" })
   .inputValidator((data) =>
-    z.object({
-      scans: z.array(
-        z.object({
-          meterSerial: z.string(),
-          dcuId: z.string(),
-          boxId: z.string(),
-          scanDateTime: z.string(),
-          status: z.string(),
-          notes: z.string().default(""),
-        }),
-      ),
-      spreadsheetId: z.string(),
-      sheetName: z.string(),
-      columnNames: z.object({
-        meterSerial: z.string(),
-        dcuId: z.string(),
-        boxId: z.string(),
-        scanDateTime: z.string(),
-        status: z.string(),
-        notes: z.string(),
-      }),
-    }).parse(data),
+    z
+      .object({
+        scans: z.array(
+          z.object({
+            meterSerial: z.string(),
+            dcuId: z.string(),
+            boxId: z.string(),
+          }),
+        ),
+        spreadsheetId: z.string(),
+        sheetName: z.string(),
+      })
+      .parse(data),
   )
   .handler(async ({ data }) => {
     const headers = getAuthHeaders();
-    const { spreadsheetId, sheetName, scans, columnNames } = data;
+    const { spreadsheetId, sheetName, scans } = data;
 
-    // Read the first row to check if headers exist
-    const headerRange = `${sheetName}!1:1`;
-    const headerUrl = `${GATEWAY_URL}/spreadsheets/${spreadsheetId}/values/${headerRange}`;
-    const headerResp = await fetch(headerUrl, { headers });
-    let needHeaders = true;
-    if (headerResp.ok) {
-      const headerResult = await headerResp.json();
-      if (headerResult.values?.[0]?.length > 0) {
-        needHeaders = false;
+    if (scans.length === 0) {
+      return { success: true, count: 0, skipped: 0 };
+    }
+
+    // Read existing serials so we never write a duplicate
+    const readUrl = `${GATEWAY_URL}/spreadsheets/${spreadsheetId}/values/${sheetName}!B1:B5000`;
+    const readResp = await fetch(readUrl, { headers });
+    const existing = new Set<string>();
+    if (readResp.ok) {
+      const body = (await readResp.json()) as { values?: string[][] };
+      for (const row of body.values ?? []) {
+        const v = (row[0] ?? "").trim();
+        if (v) existing.add(v);
       }
     }
 
-    const values: string[][] = scans.map((s) => [
-      s.meterSerial,
-      s.dcuId,
-      s.boxId,
-      s.scanDateTime,
-      s.status,
-      s.notes || "",
-    ]);
+    const fresh = scans.filter((s) => !existing.has(s.meterSerial.trim()));
+    const skipped = scans.length - fresh.length;
 
-    if (needHeaders) {
-      values.unshift([
-        columnNames.meterSerial,
-        columnNames.dcuId,
-        columnNames.boxId,
-        columnNames.scanDateTime,
-        columnNames.status,
-        columnNames.notes,
-      ]);
+    if (fresh.length === 0) {
+      return { success: true, count: 0, skipped };
     }
 
-    const range = `${sheetName}!A:F`;
-    const appendUrl = `${GATEWAY_URL}/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`;
+    // Build rows; carton + DCU shown only when they change (matches the sheet)
+    const values: string[][] = [];
+    let lastCarton = "";
+    let lastDcu = "";
+    for (const s of fresh) {
+      const cartonCell = s.boxId !== lastCarton ? s.boxId : "";
+      const dcuCell = s.dcuId !== lastDcu ? s.dcuId : "";
+      values.push([cartonCell, s.meterSerial, dcuCell]);
+      lastCarton = s.boxId;
+      lastDcu = s.dcuId;
+    }
+
+    const appendUrl = `${GATEWAY_URL}/spreadsheets/${spreadsheetId}/values/${sheetName}!A:C:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
     const response = await fetch(appendUrl, {
       method: "POST",
       headers,
@@ -104,5 +153,5 @@ export const syncToSheets = createServerFn({ method: "POST" })
       throw new Error(`Sync failed [${response.status}]: ${errorBody}`);
     }
 
-    return { success: true, count: scans.length, addedHeaders: needHeaders };
+    return { success: true, count: fresh.length, skipped };
   });
