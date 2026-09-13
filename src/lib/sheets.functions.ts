@@ -46,11 +46,25 @@ export const fetchSheetData = createServerFn({ method: "POST" })
 
     const range = `${sheetName}!A1:C5000`;
     const url = `${GATEWAY_URL}/spreadsheets/${spreadsheetId}/values/${range}`;
-    const response = await fetch(url, { headers });
+
+    let response = await fetch(url, { headers });
+    // The spreadsheet service limits how often it can be read; wait once and retry.
+    if (response.status === 429) {
+      await new Promise((r) => setTimeout(r, 2000));
+      response = await fetch(url, { headers });
+    }
 
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`Sheets read failed [${response.status}]: ${errorBody}`);
+      if (response.status === 429) {
+        throw new Error("The spreadsheet is busy right now — try again shortly.");
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(
+          "No access to the spreadsheet. Reconnect your Google account and make sure this sheet is shared with it.",
+        );
+      }
       throw new Error(`Could not read the sheet [${response.status}]`);
     }
 
