@@ -56,6 +56,17 @@ export function deleteScan(id: string): MeterScan[] {
   return scans;
 }
 
+export function markScansExported(ids: string): MeterScan[];
+export function markScansExported(ids: string[]): MeterScan[];
+export function markScansExported(ids: string | string[]): MeterScan[] {
+  const idSet = new Set(Array.isArray(ids) ? ids : [ids]);
+  const scans = getScans().map((scan) =>
+    idSet.has(scan.id) ? { ...scan, sheetsExportedAt: new Date().toISOString() } : scan,
+  );
+  saveScans(scans);
+  return scans;
+}
+
 export function deleteScansByBox(boxId: string): MeterScan[] {
   const scans = getScans().filter((s) => s.boxId !== boxId);
   saveScans(scans);
@@ -142,6 +153,7 @@ export function getDefaultSettings(): AppSettings {
   return {
     soundEnabled: true,
     autoScan: false,
+    autoScanDelayMs: 1500,
     vibrateOnScan: true,
     spreadsheetId: "1cOFjCoh29CH7_Vsdc-plSrvP93eVXfoB2lEDiJPk8ps",
     sheetName: "Transfered to Office",
@@ -173,6 +185,7 @@ export function createScan(
   status: MeterScan["status"] = "assigned",
   notes = "",
   sessionId?: string,
+  bulkCarton = false,
 ): MeterScan {
   return {
     id: crypto.randomUUID(),
@@ -183,5 +196,6 @@ export function createScan(
     status,
     notes,
     ...(sessionId ? { sessionId } : {}),
+    ...(bulkCarton ? { bulkCarton: true } : {}),
   };
 }

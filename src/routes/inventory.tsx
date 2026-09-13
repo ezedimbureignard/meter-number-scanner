@@ -121,7 +121,10 @@ function InventoryPage() {
   };
 
   const handleSync = async () => {
-    if (!settings || filtered.length === 0) {
+    // Bulk cartons have a dedicated export flow: only complete cartons may go
+    // to their DCU-location tab from the Scan screen.
+    const syncable = filtered.filter((scan) => !scan.bulkCarton);
+    if (!settings || syncable.length === 0) {
       toast.error("No data to sync");
       return;
     }
@@ -135,7 +138,7 @@ function InventoryPage() {
     try {
       const result = await syncToSheets({
         data: {
-          scans: filtered.map((s) => ({
+          scans: syncable.map((s) => ({
             meterSerial: s.meterSerial,
             dcuId: s.dcuId,
             boxId: s.boxId,
@@ -148,7 +151,7 @@ function InventoryPage() {
           columnNames: settings.columnConfig,
         },
       });
-      toast.success(`Synced ${result.count} scans to Google Sheets`);
+      toast.success(`Synced ${result.count} non-carton scans to Google Sheets`);
     } catch (err) {
       toast.error("Sync failed", {
         description: err instanceof Error ? err.message : "Unknown error",
@@ -182,6 +185,7 @@ function InventoryPage() {
   }
 
   const cols = settings.columnConfig;
+  const syncableCount = filtered.filter((scan) => !scan.bulkCarton).length;
 
   return (
     <div className="min-h-screen pb-24">
@@ -206,14 +210,14 @@ function InventoryPage() {
               variant="outline"
               size="sm"
               onClick={handleSync}
-              disabled={filtered.length === 0 || syncing}
+              disabled={syncableCount === 0 || syncing}
             >
               {syncing ? (
                 <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               ) : (
                 <CloudUpload className="mr-1.5 h-4 w-4" />
               )}
-              Sync
+              Sync scans
             </Button>
           </div>
         </div>

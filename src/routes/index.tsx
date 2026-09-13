@@ -29,10 +29,12 @@ import {
   getSettings,
   getSessions,
   getManifests,
+  markScansExported,
   addScan,
   addDCU,
   createScan,
 } from "@/lib/storage";
+import { exportCartonsToSheets } from "@/lib/sheets.functions";
 import {
   checkSheetsConnection,
   fetchSheetData,
@@ -99,6 +101,7 @@ function ScanPage() {
   const [totalBoxes, setTotalBoxes] = useState(0);
   const [sessions, setSessions] = useState<ScanSession[]>([]);
   const [manifests, setManifests] = useState<CartonManifest[]>([]);
+  const [exportingCartons, setExportingCartons] = useState(false);
 
   // Google Sheet state
   const [sheetSerials, setSheetSerials] = useState<Set<string>>(new Set());
@@ -254,7 +257,7 @@ function ScanPage() {
       const text = extractSerial(raw);
 
       if (mode === "bulk" && bulkBoxId && bulkDcuId) {
-        const scan = createScan(text, bulkDcuId, bulkBoxId, "assigned", "", activeSession?.id);
+        const scan = createScan(text, bulkDcuId, bulkBoxId, "assigned", "", activeSession?.id, true);
         addScan(scan);
         const newCount = bulkCount + 1;
         setBulkCount(newCount);
@@ -302,6 +305,40 @@ function ScanPage() {
     refreshRecent();
     toast.success("Scan saved", { description: serial });
     setScannedSerial("");
+  };
+
+  const handleExportCompletedCartons = async () => {
+    if (!settings) return;
+    const grouped = new Map<string, MeterScan[]>();
+    for (const scan of getScans()) {
+      if (!scan.bulkCarton || scan.sheetsExportedAt) continue;
+      const key = `${scan.dcuId}\u0000${scan.boxId}`;
+      grouped.set(key, [...(grouped.get(key) ?? []), scan]);
+    }
+    const cartons = [...grouped.values()]
+      .filter((carton) => carton.length === 12)
+      .map((carton) => ({
+        boxId: carton[0]!.boxId,
+        dcuId: carton[0]!.dcuId,
+        dcuName: dcus.find((dcu) => dcu.id === carton[0]!.dcuId)?.name ?? carton[0]!.dcuId,
+        scans: carton.map((scan) => ({ id: scan.id, meterSerial: scan.meterSerial })),
+      }));
+
+    if (!cartons.length) {
+      toast.info("No complete, unexported 12-meter cartons to export");
+      return;
+    }
+    setExportingCartons(true);
+    try {
+      const result = await exportCartonsToSheets({ data: { spreadsheetId: settings.spreadsheetId, cartons } });
+      markScansExported(result.exportedIds);
+      refreshRecent();
+      toast.success(`Exported ${result.count} meters to ${result.tabs.join(", ")}`, { description: "Each DCU has its own Google Sheets tab." });
+    } catch (error) {
+      toast.error("Carton export failed", { description: error instanceof Error ? error.message : "Unknown error" });
+    } finally {
+      setExportingCartons(false);
+    }
   };
 
   const handleAddDcu = () => {
@@ -412,6 +449,7 @@ function ScanPage() {
           onScan={handleScan}
           soundEnabled={settings.soundEnabled}
           vibrateOnScan={settings.vibrateOnScan}
+          scanCooldownMs={settings.autoScanDelayMs}
           validate={(text) => checkDuplicate(extractSerial(text))}
         />
 
@@ -510,6 +548,14 @@ function ScanPage() {
               }}
             >
               Reset Counter
+            </Button>
+            <Button
+              variant="secondary"
+              className="w-full"
+              onClick={handleExportCompletedCartons}
+              disabled={exportingCartons}
+            >
+              {exportingCartons ? "Exporting cartons…" : "Export completed cartons to Google Sheets"}
             </Button>
           </div>
         )}

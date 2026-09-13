@@ -155,3 +155,81 @@ export const syncToSheets = createServerFn({ method: "POST" })
 
     return { success: true, count: fresh.length, skipped };
   });
+
+const cartonExportSchema = z.object({
+  spreadsheetId: z.string(),
+  cartons: z.array(z.object({
+    boxId: z.string(),
+    dcuId: z.string(),
+    dcuName: z.string(),
+    scans: z.array(z.object({ id: z.string(), meterSerial: z.string() })),
+  })),
+});
+
+function sheetTitle(value: string) {
+  return value.trim().replace(/[\\\\/:?*\[\]]/g, "-").slice(0, 100) || "Unassigned DCU";
+}
+
+/** Export completed bulk cartons into one worksheet tab per DCU location. */
+export const exportCartonsToSheets = createServerFn({ method: "POST" })
+  .inputValidator((data) => cartonExportSchema.parse(data))
+  .handler(async ({ data }) => {
+    const headers = getAuthHeaders();
+    const metadataUrl = `${GATEWAY_URL}/spreadsheets/${data.spreadsheetId}?fields=sheets.properties`;
+    const metadataResponse = await fetch(metadataUrl, { headers });
+    if (!metadataResponse.ok) throw new Error("Could not read Google Sheets tabs.");
+    const metadata = (await metadataResponse.json()) as { sheets?: Array<{ properties?: { title?: string } }> };
+    const existingTabs = new Set(metadata.sheets?.map((sheet) => sheet.properties?.title).filter((title): title is string => Boolean(title)) ?? []);
+    const exportedIds: string[] = [];
+
+    const byTab = new Map<string, typeof data.cartons>();
+    for (const carton of data.cartons) {
+      const title = sheetTitle(carton.dcuName);
+      byTab.set(title, [...(byTab.get(title) ?? []), carton]);
+    }
+
+    for (const [tabName, cartons] of byTab) {
+      const isNewTab = !existingTabs.has(tabName);
+      if (isNewTab) {
+        const createResponse = await fetch(`${GATEWAY_URL}/spreadsheets/${data.spreadsheetId}:batchUpdate`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ requests: [{ addSheet: { properties: { title: tabName } } }] }),
+        });
+        if (!createResponse.ok) throw new Error(`Could not create the ${tabName} tab.`);
+        existingTabs.add(tabName);
+      }
+
+      const readResponse = await fetch(`${GATEWAY_URL}/spreadsheets/${data.spreadsheetId}/values/${encodeURIComponent(tabName)}!B:B`, { headers });
+      const existingSerials = new Set<string>();
+      if (readResponse.ok) {
+        const body = (await readResponse.json()) as { values?: string[][] };
+        for (const row of body.values ?? []) if ((row[0] ?? "").trim()) existingSerials.add((row[0] ?? "").trim());
+      }
+
+      const values: string[][] = isNewTab ? [["Carton No.", "Meter Number", "DCU Location"]] : [];
+      for (const carton of cartons) {
+        let wroteCarton = false;
+        for (const scan of carton.scans) {
+          if (!existingSerials.has(scan.meterSerial.trim())) {
+            values.push([
+              wroteCarton ? "" : carton.boxId,
+              scan.meterSerial,
+              wroteCarton ? "" : carton.dcuName,
+            ]);
+            existingSerials.add(scan.meterSerial.trim());
+            wroteCarton = true;
+          }
+          exportedIds.push(scan.id);
+        }
+      }
+
+      if (values.length) {
+        const appendResponse = await fetch(`${GATEWAY_URL}/spreadsheets/${data.spreadsheetId}/values/${encodeURIComponent(tabName)}!A:C:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+          method: "POST", headers, body: JSON.stringify({ values }),
+        });
+        if (!appendResponse.ok) throw new Error(`Could not export cartons to the ${tabName} tab.`);
+      }
+    }
+    return { success: true, count: exportedIds.length, tabs: [...byTab.keys()], exportedIds };
+  });

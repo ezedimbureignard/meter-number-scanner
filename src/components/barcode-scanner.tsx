@@ -18,6 +18,8 @@ interface BarcodeScannerProps {
   vibrateOnScan: boolean;
   /** Return true if the value was accepted, false if rejected (e.g. duplicate). */
   validate?: (text: string) => boolean;
+  /** Minimum time between camera detections, in milliseconds. */
+  scanCooldownMs?: number;
 }
 
 export function BarcodeScanner({
@@ -25,6 +27,7 @@ export function BarcodeScanner({
   soundEnabled,
   vibrateOnScan,
   validate,
+  scanCooldownMs = 1500,
 }: BarcodeScannerProps) {
   const scannerRef = useRef<any>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -66,14 +69,17 @@ export function BarcodeScanner({
       const text = decodedText.trim();
       const now = Date.now();
       const last = lastScanRef.current;
-      if (text === last.text && now - last.time < 2500) return;
+      // Barcode decoders can emit several reads per second. Throttle every
+      // camera detection (not just repeated text) so meters are not saved too
+      // quickly when a carton is being scanned.
+      if (now - last.time < scanCooldownMs) return;
       lastScanRef.current = { text, time: now };
 
       const accepted = validateRef.current ? validateRef.current(text) : true;
       feedback(accepted);
       if (accepted) onScanRef.current(text);
     },
-    [feedback],
+    [feedback, scanCooldownMs],
   );
 
   /** Pick the best rear camera: prefer a "back"/"rear" labelled device. */

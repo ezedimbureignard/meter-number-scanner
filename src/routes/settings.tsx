@@ -240,6 +240,30 @@ function SettingsPage() {
                 onCheckedChange={(v) => updateSettings({ autoScan: v })}
               />
             </div>
+            <div className="space-y-1.5 rounded-lg bg-secondary p-3">
+              <Label htmlFor="auto-scan-delay">Time between auto-scans (seconds)</Label>
+              <Input
+                id="auto-scan-delay"
+                type="number"
+                min="0.5"
+                max="10"
+                step="0.5"
+                value={settings.autoScanDelayMs / 1000}
+                onChange={(event) => {
+                  const seconds = Number(event.target.value);
+                  if (Number.isFinite(seconds)) {
+                    updateSettings({
+                      autoScanDelayMs: Math.round(
+                        Math.min(10, Math.max(0.5, seconds)) * 1000,
+                      ),
+                    });
+                  }
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Camera scans are paused briefly after each accepted meter. Default: 1.5 seconds.
+              </p>
+            </div>
           </CardContent>
         </Card>
 

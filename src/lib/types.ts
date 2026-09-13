@@ -9,6 +9,8 @@ export interface MeterScan {
   status: ScanStatus;
   notes?: string;
   sessionId?: string;
+  bulkCarton?: boolean;
+  sheetsExportedAt?: string;
 }
 
 export interface ScanSession {
@@ -46,6 +48,8 @@ export interface ColumnConfig {
 export interface AppSettings {
   soundEnabled: boolean;
   autoScan: boolean;
+  /** Minimum time between camera-detected scans, in milliseconds. */
+  autoScanDelayMs: number;
   vibrateOnScan: boolean;
   spreadsheetId: string;
   sheetName: string;
