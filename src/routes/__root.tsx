@@ -13,7 +13,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ScanLine, Table, Settings as SettingsIcon, ChartNoAxesCombined } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { addUser, getCurrentUser, hasUsers, login, logout } from "@/lib/storage";
+import { getCurrentUser, hasUsers, login, logout } from "@/lib/storage";
 import type { AppUser, UserRole } from "@/lib/types";
 
 import appCss from "../styles.css?url";
@@ -205,21 +205,16 @@ function AccessScreen({ onAuthenticated }: { onAuthenticated: (user: AppUser) =>
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [role, setRole] = useState<UserRole>("standard");
-  const firstAccount = typeof window !== "undefined" && !hasUsers();
+  const hasConfiguredUsers = typeof window !== "undefined" && hasUsers();
   const submit = () => {
     setError("");
     if (!name.trim() || !password) return setError("Enter a name and password.");
     try {
-      if (firstAccount) {
-        if (role !== "admin") return setError("The first account must be an administrator.");
-        const user: AppUser = { id: crypto.randomUUID(), name: name.trim(), password, role: "admin", enabled: true, createdAt: new Date().toISOString() };
-        addUser(user); login(user.name, password, role); onAuthenticated(user);
-      } else {
-        const user = login(name, password, role);
-        if (!user) return setError("Incorrect name, password, role, or disabled account.");
-        onAuthenticated(user);
-      }
+      if (!hasConfiguredUsers) return setError("No user accounts are configured. Contact an administrator.");
+      const user = login(name, password, role);
+      if (!user) return setError("Incorrect name, password, role, or disabled account.");
+      onAuthenticated(user);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to sign in."); }
   };
-  return <main className="flex min-h-screen items-center justify-center bg-background px-4"><section className="w-full max-w-sm space-y-5 rounded-xl border border-border bg-card p-6 shadow-sm"><div><h1 className="text-2xl font-bold">MeterTrack</h1><p className="mt-1 text-sm text-muted-foreground">{firstAccount ? "Create the first administrator account." : "Sign in to continue."}</p></div><div className="space-y-3"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" autoComplete="username" /><Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" autoComplete="current-password" onKeyDown={(e) => e.key === "Enter" && submit()} /><select value={role} onChange={(e) => setRole(e.target.value as UserRole)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="standard">Standard user</option><option value="admin">Administrator</option></select>{error && <p className="text-sm text-destructive">{error}</p>}<Button className="w-full" onClick={submit}>{firstAccount ? "Create administrator" : "Sign in"}</Button></div></section></main>;
+  return <main className="flex min-h-screen items-center justify-center bg-background px-4"><section className="w-full max-w-sm space-y-5 rounded-xl border border-border bg-card p-6 shadow-sm"><div><h1 className="text-2xl font-bold">MeterTrack</h1><p className="mt-1 text-sm text-muted-foreground">Sign in with the credentials issued by your administrator.</p></div>{hasConfiguredUsers ? <div className="space-y-3"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Username" autoComplete="username" /><Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" autoComplete="current-password" onKeyDown={(e) => e.key === "Enter" && submit()} /><select value={role} onChange={(e) => setRole(e.target.value as UserRole)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="standard">Standard user</option><option value="admin">Administrator</option></select>{error && <p className="text-sm text-destructive">{error}</p>}<Button className="w-full" onClick={submit}>Sign in</Button></div> : <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">No user accounts are configured. Contact the system administrator.</p>}</section></main>;
 }
