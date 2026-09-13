@@ -1,10 +1,12 @@
-import type { MeterScan, DCU, AppSettings, ScanSession, CartonManifest } from "./types";
+import type { MeterScan, DCU, AppSettings, ScanSession, CartonManifest, AppUser } from "./types";
 
 const SCANS_KEY = "metertrack_scans";
 const DCUS_KEY = "metertrack_dcus";
 const SETTINGS_KEY = "metertrack_settings";
 const SESSIONS_KEY = "metertrack_sessions";
 const MANIFESTS_KEY = "metertrack_manifests";
+const USERS_KEY = "metertrack_users";
+const CURRENT_USER_KEY = "metertrack_current_user";
 
 function read<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -147,6 +149,29 @@ export function removeDCU(id: string) {
   return dcus;
 }
 
+/* ── Users / local access control ── */
+export function getUsers(): AppUser[] { return read<AppUser[]>(USERS_KEY, []); }
+export function getCurrentUser(): AppUser | null {
+  const id = read<string | null>(CURRENT_USER_KEY, null);
+  return id ? getUsers().find((user) => user.id === id) ?? null : null;
+}
+export function addUser(user: AppUser): AppUser[] {
+  const users = getUsers();
+  if (users.some((item) => item.name.toLocaleLowerCase() === user.name.toLocaleLowerCase())) throw new Error("That user name is already in use");
+  if (user.assignedDcuId && users.some((item) => item.assignedDcuId === user.assignedDcuId)) throw new Error("That DCU location is already assigned to another user");
+  const next = [...users, user]; write(USERS_KEY, next); return next;
+}
+export function deleteUser(id: string): AppUser[] {
+  const next = getUsers().filter((user) => user.id !== id); write(USERS_KEY, next);
+  if (read<string | null>(CURRENT_USER_KEY, null) === id) write(CURRENT_USER_KEY, null);
+  return next;
+}
+export function login(name: string, password: string): AppUser | null {
+  const user = getUsers().find((item) => item.name.toLocaleLowerCase() === name.trim().toLocaleLowerCase() && item.password === password);
+  if (user) write(CURRENT_USER_KEY, user.id); return user ?? null;
+}
+export function logout() { write(CURRENT_USER_KEY, null); }
+
 /* ── Settings ── */
 
 export function getDefaultSettings(): AppSettings {
@@ -154,6 +179,8 @@ export function getDefaultSettings(): AppSettings {
     soundEnabled: true,
     autoScan: false,
     autoScanDelayMs: 1500,
+    metersPerCarton: 12,
+    cartonsPerBatch: 15,
     vibrateOnScan: true,
     spreadsheetId: "1cOFjCoh29CH7_Vsdc-plSrvP93eVXfoB2lEDiJPk8ps",
     sheetName: "Transfered to Office",

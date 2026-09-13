@@ -5,10 +5,20 @@ import { STATUS_LABELS } from "./types";
  * Export scans to an .xlsx file and trigger a download.
  * Uses dynamic import so xlsx is only loaded in the browser.
  */
-export async function exportToExcel(scans: MeterScan[], columns: ColumnConfig) {
+function cartonNumber(value: string) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && value.trim() !== "" ? numeric : Number.MAX_SAFE_INTEGER;
+}
+
+/** Orders cartons numerically from the lowest carton number through the highest. */
+export function sortByCarton(scans: MeterScan[]) {
+  return [...scans].sort((a, b) => cartonNumber(a.boxId) - cartonNumber(b.boxId) || a.boxId.localeCompare(b.boxId, undefined, { numeric: true }) || a.scanDateTime.localeCompare(b.scanDateTime));
+}
+
+export async function exportToExcel(scans: MeterScan[], columns: ColumnConfig, filename?: string) {
   const XLSX = await import("xlsx");
 
-  const rows = scans.map((s) => ({
+  const rows = sortByCarton(scans).map((s) => ({
     [columns.meterSerial]: s.meterSerial,
     [columns.dcuId]: s.dcuId,
     [columns.boxId]: s.boxId,
@@ -48,5 +58,5 @@ export async function exportToExcel(scans: MeterScan[], columns: ColumnConfig) {
   XLSX.utils.book_append_sheet(wb, ws, "Meter Inventory");
 
   const date = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `meter-inventory-${date}.xlsx`);
+  XLSX.writeFile(wb, filename ?? `meter-inventory-${date}.xlsx`);
 }

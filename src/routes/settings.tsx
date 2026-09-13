@@ -9,8 +9,12 @@ import {
   saveSettings,
   clearAllScans,
   getScans,
+  getUsers,
+  addUser,
+  deleteUser,
+  getCurrentUser,
 } from "@/lib/storage";
-import type { DCU, AppSettings } from "@/lib/types";
+import type { DCU, AppSettings, AppUser, UserRole } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,12 +69,19 @@ function SettingsPage() {
   const [newDcuId, setNewDcuId] = useState("");
   const [newDcuName, setNewDcuName] = useState("");
   const [scanCount, setScanCount] = useState(0);
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState<UserRole>("standard");
+  const [newUserDcu, setNewUserDcu] = useState("");
+  const currentUser = getCurrentUser();
 
   useEffect(() => {
     if (hydrated) {
       setDcus(getDCUs());
       setSettings(getSettings());
       setScanCount(getScans().length);
+      setUsers(getUsers());
     }
   }, [hydrated]);
 
@@ -84,6 +95,15 @@ function SettingsPage() {
     setNewDcuId("");
     setNewDcuName("");
     toast.success("DCU added");
+  };
+
+  const handleAddUser = () => {
+    if (!newUserName.trim() || !newUserPassword) return toast.error("Enter a user name and password");
+    if (newUserRole === "standard" && !newUserDcu) return toast.error("Assign a DCU location to each standard user");
+    try {
+      setUsers(addUser({ id: crypto.randomUUID(), name: newUserName.trim(), password: newUserPassword, role: newUserRole, assignedDcuId: newUserRole === "standard" ? newUserDcu : undefined, createdAt: new Date().toISOString() }));
+      setNewUserName(""); setNewUserPassword(""); setNewUserDcu(""); setNewUserRole("standard"); toast.success("User added");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not add user"); }
   };
 
   const handleRemoveDcu = (id: string) => {
@@ -125,6 +145,8 @@ function SettingsPage() {
     );
   }
 
+  if (currentUser?.role !== "admin") return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Administrator access required.</div>;
+
   return (
     <div className="min-h-screen pb-24">
       <header className="border-b border-border bg-card/50 px-4 py-3">
@@ -132,6 +154,16 @@ function SettingsPage() {
       </header>
 
       <div className="space-y-4 px-4 py-4">
+        <Card>
+          <CardHeader><CardTitle className="text-base">User access</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-2"><Input value={newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="User name" /><Input type="password" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} placeholder="Password" /></div>
+            <div className="grid grid-cols-2 gap-2"><select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value as UserRole)} className="h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="standard">Standard user</option><option value="admin">Administrator</option></select><select value={newUserDcu} onChange={(e) => setNewUserDcu(e.target.value)} disabled={newUserRole === "admin"} className="h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="">Assign DCU location</option>{dcus.filter((dcu) => !users.some((user) => user.assignedDcuId === dcu.id)).map((dcu) => <option key={dcu.id} value={dcu.id}>{dcu.name}</option>)}</select></div>
+            <Button className="w-full" onClick={handleAddUser}>Add user</Button>
+            <p className="text-xs text-muted-foreground">A DCU location can be assigned to only one standard user.</p>
+            {users.map((user) => <div key={user.id} className="flex items-center justify-between rounded-lg border border-border p-2.5"><div><p className="text-sm font-medium">{user.name} <span className="text-muted-foreground">· {user.role}</span></p><p className="text-xs text-muted-foreground">{dcus.find((dcu) => dcu.id === user.assignedDcuId)?.name ?? (user.role === "admin" ? "All locations" : "No location")}</p></div>{user.id !== currentUser.id && <button onClick={() => { setUsers(deleteUser(user.id)); toast.success("User deleted"); }} className="text-muted-foreground hover:text-destructive" aria-label={`Delete ${user.name}`}><Trash2 className="h-4 w-4" /></button>}</div>)}
+          </CardContent>
+        </Card>
         {/* DCU Management */}
         <Card>
           <CardHeader>
@@ -264,6 +296,7 @@ function SettingsPage() {
                 Camera scans are paused briefly after each accepted meter. Default: 1.5 seconds.
               </p>
             </div>
+            <div className="grid grid-cols-2 gap-3 rounded-lg bg-secondary p-3"><div className="space-y-1"><Label>Meters per carton</Label><Input type="number" min="1" value={settings.metersPerCarton} onChange={(e) => updateSettings({ metersPerCarton: Math.max(1, Number(e.target.value) || 1) })} /></div><div className="space-y-1"><Label>Cartons per batch</Label><Input type="number" min="1" value={settings.cartonsPerBatch} onChange={(e) => updateSettings({ cartonsPerBatch: Math.max(1, Number(e.target.value) || 1) })} /></div><p className="col-span-2 text-xs text-muted-foreground">These limits control bulk scanning and the batch export threshold.</p></div>
           </CardContent>
         </Card>
 

@@ -7,11 +7,12 @@ import {
   getSettings,
   updateScan,
   deleteScan,
+  getCurrentUser,
 } from "@/lib/storage";
 import { exportToExcel } from "@/lib/export";
 import { syncToSheets, checkSheetsConnection } from "@/lib/sheets.functions";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/types";
-import type { MeterScan, DCU, AppSettings, ScanStatus } from "@/lib/types";
+import type { MeterScan, DCU, AppSettings, ScanStatus, AppUser } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -83,11 +84,14 @@ function InventoryPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [sheetsConnected, setSheetsConnected] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
 
   useEffect(() => {
     if (hydrated) {
-      setScans(getScans());
-      setDcus(getDCUs());
+      const user = getCurrentUser();
+      setCurrentUser(user);
+      setScans(user?.role === "standard" ? getScans().filter((scan) => scan.dcuId === user.assignedDcuId) : getScans());
+      setDcus(user?.role === "standard" ? getDCUs().filter((dcu) => dcu.id === user.assignedDcuId) : getDCUs());
       setSettings(getSettings());
       checkSheetsConnection().then((r) => setSheetsConnected(r.connected));
     }
@@ -119,6 +123,8 @@ function InventoryPage() {
     await exportToExcel(filtered, settings.columnConfig);
     toast.success(`Exported ${filtered.length} scans to Excel`);
   };
+
+  const cartonGroups = useMemo(() => Object.values(filtered.reduce<Record<string, MeterScan[]>>((groups, scan) => { const key = `${scan.dcuId}::${scan.boxId}`; (groups[key] ??= []).push(scan); return groups; }, {})).sort((a, b) => Number(a[0].boxId) - Number(b[0].boxId) || a[0].boxId.localeCompare(b[0].boxId, undefined, { numeric: true })), [filtered]);
 
   const handleSync = async () => {
     // Bulk cartons have a dedicated export flow: only complete cartons may go
@@ -163,6 +169,7 @@ function InventoryPage() {
 
   const handleSaveEdit = () => {
     if (!editScan) return;
+    if (currentUser?.role !== "admin") return toast.error("Only administrators can edit scans");
     updateScan(editScan.id, editScan);
     setScans(getScans());
     setEditScan(null);
@@ -171,6 +178,7 @@ function InventoryPage() {
 
   const handleDelete = () => {
     if (!deleteId) return;
+    if (currentUser?.role !== "admin") return toast.error("Only administrators can delete scans");
     setScans(deleteScan(deleteId));
     setDeleteId(null);
     toast.success("Scan deleted");
@@ -282,6 +290,7 @@ function InventoryPage() {
             </p>
           </div>
         ) : (
+          <>
           <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full text-sm">
               <thead className="bg-card">
@@ -326,7 +335,7 @@ function InventoryPage() {
                       </span>
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <button
+                      {currentUser?.role === "admin" && <><button
                         onClick={() => setEditScan(scan)}
                         className="mr-1 text-muted-foreground hover:text-primary"
                       >
@@ -367,13 +376,15 @@ function InventoryPage() {
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
-                      </AlertDialog>
+                      </AlertDialog></>}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <div className="space-y-2 pt-2"><h2 className="text-sm font-semibold">Carton exports</h2>{cartonGroups.map((carton) => <div key={`${carton[0].dcuId}-${carton[0].boxId}`} className="flex items-center justify-between rounded-lg border border-border p-3"><div><p className="font-mono text-sm font-medium">Carton {carton[0].boxId}</p><p className="text-xs text-muted-foreground">{carton[0].dcuId} · {carton.length} scans</p></div><Button size="sm" variant="outline" onClick={() => void exportToExcel(carton, settings.columnConfig, `carton-${carton[0].boxId}.xlsx`)}><Download className="mr-1 h-3.5 w-3.5" />Export</Button></div>)}<Button className="w-full" onClick={handleExport}><Download className="mr-2 h-4 w-4" />Export all cartons (lowest to highest)</Button></div>
+          </>
         )}
       </div>
 

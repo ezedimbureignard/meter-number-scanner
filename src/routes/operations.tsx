@@ -15,6 +15,7 @@ import {
   getScans,
   getSessions,
   getSettings,
+  getCurrentUser,
   saveManifest,
   saveSettings,
   updateSession,
@@ -113,6 +114,7 @@ function OperationsPage() {
   };
 
   if (!hydrated) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading…</div>;
+  if (getCurrentUser()?.role !== "admin") return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Administrator access required.</div>;
 
   return (
     <div className="min-h-screen space-y-4 pb-24">

@@ -36,6 +36,18 @@ export interface DCU {
   name: string;
 }
 
+export type UserRole = "admin" | "standard";
+
+export interface AppUser {
+  id: string;
+  name: string;
+  /** Stored locally for this offline app. Use server-backed auth for multi-device deployment. */
+  password: string;
+  role: UserRole;
+  assignedDcuId?: string;
+  createdAt: string;
+}
+
 export interface ColumnConfig {
   meterSerial: string;
   dcuId: string;
@@ -55,6 +67,8 @@ export interface AppSettings {
   sheetName: string;
   columnConfig: ColumnConfig;
   activeSessionId?: string;
+  metersPerCarton: number;
+  cartonsPerBatch: number;
 }
 
 export const STATUS_LABELS: Record<ScanStatus, string> = {

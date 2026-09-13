@@ -33,6 +33,7 @@ import {
   addScan,
   addDCU,
   createScan,
+  getCurrentUser,
 } from "@/lib/storage";
 import { exportCartonsToSheets } from "@/lib/sheets.functions";
 import {
@@ -48,6 +49,7 @@ import type {
   CartonManifest,
   ScanSession,
   ScanStatus,
+  AppUser,
 } from "@/lib/types";
 import {
   Boxes,
@@ -90,6 +92,7 @@ function ScanPage() {
   const [boxId, setBoxId] = useState("");
   const [status, setStatus] = useState<ScanStatus>("assigned");
   const [dcus, setDcus] = useState<DCU[]>([]);
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [mode, setMode] = useState<"single" | "bulk">("single");
   const [bulkBoxId, setBulkBoxId] = useState("");
@@ -125,7 +128,7 @@ function ScanPage() {
 
   const localSerials = useMemo(
     () => new Set(getScansSafe().map((s) => normalizeSerial(s.meterSerial))),
-    [totalScans, hydrated],
+    [totalScans, hydrated, currentUser],
   );
 
   const activeSession = useMemo(
@@ -143,17 +146,17 @@ function ScanPage() {
       grouped.set(key, carton);
     }
     return [...grouped.values()].sort((a, b) => b.scans[0]!.scanDateTime.localeCompare(a.scans[0]!.scanDateTime));
-  }, [totalScans, hydrated]);
+  }, [totalScans, hydrated, currentUser]);
 
   const completedDcuCartons = useMemo(
     () => cartonBlocks.filter((carton) =>
       carton.dcuId === bulkDcuId &&
-      carton.scans.length === 12 &&
+      carton.scans.length === settings?.metersPerCarton &&
       !carton.scans.some((scan) => scan.sheetsExportedAt),
     ),
-    [bulkDcuId, cartonBlocks],
+    [bulkDcuId, cartonBlocks, settings?.metersPerCarton],
   );
-  const dcuCartonLimitReached = bulkDcuId !== "" && completedDcuCartons.length >= 15;
+  const dcuCartonLimitReached = bulkDcuId !== "" && completedDcuCartons.length >= (settings?.cartonsPerBatch ?? 15);
   const bulkScannerPaused = mode === "bulk" && (
     !bulkDcuId || !bulkBoxId || awaitingNextCarton || dcuCartonLimitReached
   );
@@ -182,11 +185,14 @@ function ScanPage() {
       missing: expectedSerials.size - found,
       unexpected,
     };
-  }, [boxId, bulkBoxId, manifests, mode, totalScans]);
+  }, [boxId, bulkBoxId, manifests, mode, totalScans, currentUser]);
 
   function getScansSafe(): MeterScan[] {
     if (typeof window === "undefined") return [];
-    return getScans();
+    const scans = getScans();
+    return currentUser?.role === "standard"
+      ? scans.filter((scan) => scan.dcuId === currentUser.assignedDcuId)
+      : scans;
   }
 
   const refreshRecent = () => {
@@ -223,7 +229,9 @@ function ScanPage() {
             addDCU({ id: name, name });
           }
         }
-        setDcus(getDCUs());
+      const user = getCurrentUser();
+      setCurrentUser(user);
+      setDcus(user?.role === "standard" ? getDCUs().filter((dcu) => dcu.id === user.assignedDcuId) : getDCUs());
 
         // Suggest the next carton number
         if (result.lastCarton > 0) {
@@ -267,7 +275,7 @@ function ScanPage() {
     const count = getScans().filter(
       (scan) => scan.bulkCarton && !scan.sheetsExportedAt && scan.dcuId === bulkDcuId && scan.boxId === bulkBoxId,
     ).length;
-    setBulkCount(Math.min(count, 12));
+    setBulkCount(Math.min(count, settings?.metersPerCarton ?? 12));
   }, [bulkBoxId, bulkDcuId, hydrated, mode, totalScans]);
 
   /** Returns true when the serial is new, false (and opens the dialog) when duplicated. */
@@ -299,13 +307,13 @@ function ScanPage() {
         const savedInCarton = getScans().filter(
           (scan) => scan.bulkCarton && !scan.sheetsExportedAt && scan.dcuId === bulkDcuId && scan.boxId === bulkBoxId,
         ).length;
-        if (savedInCarton >= 12) return;
+        if (savedInCarton >= settings.metersPerCarton) return;
         const scan = createScan(text, bulkDcuId, bulkBoxId, "assigned", "", activeSession?.id, true);
         addScan(scan);
         const newCount = savedInCarton + 1;
         setBulkCount(newCount);
         refreshRecent();
-        if (newCount === 12) {
+        if (newCount === settings.metersPerCarton) {
           toast.success("Carton complete!", {
             description: "Scanning is paused until you approve the next carton.",
           });
@@ -316,7 +324,7 @@ function ScanPage() {
           );
           setAwaitingNextCarton(true);
         } else {
-          toast.success(`Scanned ${newCount}/12`, { description: text });
+          toast.success(`Scanned ${newCount}/${settings.metersPerCarton}`, { description: text });
         }
       } else {
         setScannedSerial(text);
@@ -356,8 +364,8 @@ function ScanPage() {
 
   const handleExportCompletedCartons = async () => {
     if (!settings || !bulkDcuId) return;
-    if (completedDcuCartons.length !== 15) {
-      toast.error("A DCU must have exactly 15 completed cartons before export");
+    if (completedDcuCartons.length !== settings.cartonsPerBatch) {
+      toast.error(`A DCU must have exactly ${settings.cartonsPerBatch} completed cartons before export`);
       return;
     }
     const cartons = completedDcuCartons
@@ -374,7 +382,7 @@ function ScanPage() {
       refreshRecent();
       setBulkCount(0);
       setAwaitingNextCarton(false);
-      toast.success(`Exported ${result.count} meters to ${result.tabs.join(", ")}`, { description: "The 15-carton DCU batch is unlocked for further scanning." });
+      toast.success(`Exported ${result.count} meters to ${result.tabs.join(", ")}`, { description: "The carton batch is unlocked for further scanning." });
     } catch (error) {
       toast.error("Carton export failed", { description: error instanceof Error ? error.message : "Unknown error" });
     } finally {
@@ -443,14 +451,14 @@ function ScanPage() {
           )}
         </SelectContent>
       </Select>
-      <Button
+      {currentUser?.role === "admin" && <Button
         variant="outline"
         size="icon"
         aria-label="Add DCU"
         onClick={() => setAddDcuOpen(true)}
       >
         <Plus className="h-4 w-4" />
-      </Button>
+      </Button>}
     </div>
   );
 
@@ -495,7 +503,7 @@ function ScanPage() {
               Single Scan
             </TabsTrigger>
             <TabsTrigger value="bulk" className="flex-1">
-              Bulk (12/carton)
+              Bulk ({settings.metersPerCarton}/carton)
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -586,18 +594,18 @@ function ScanPage() {
               <span className="text-sm font-medium">Meters in carton · DCU batch</span>
               <span className="font-mono text-2xl font-bold text-primary">
                 {bulkCount}
-                <span className="text-muted-foreground">/12</span>
+                <span className="text-muted-foreground">/{settings.metersPerCarton}</span>
               </span>
             </div>
             {bulkDcuId && (
               <p className="text-center text-xs text-muted-foreground">
-                {completedDcuCartons.length}/15 completed cartons awaiting export for this DCU
+                {completedDcuCartons.length}/{settings.cartonsPerBatch} completed cartons awaiting export for this DCU
               </p>
             )}
             <div className="h-2 overflow-hidden rounded-full bg-secondary">
               <div
                 className="h-full bg-primary transition-all"
-                style={{ width: `${(bulkCount / 12) * 100}%` }}
+                style={{ width: `${(bulkCount / settings.metersPerCarton) * 100}%` }}
               />
             </div>
             <p className="text-center text-xs text-muted-foreground">
@@ -605,7 +613,7 @@ function ScanPage() {
                 ? "Scan each meter — they auto-save to this carton"
                 : "Set DCU and carton number first, then start scanning"}
             </p>
-            {completedDcuCartons.length === 15 && (
+            {completedDcuCartons.length === settings.cartonsPerBatch && (
               <Button
                 variant="secondary"
                 className="w-full"
@@ -614,7 +622,7 @@ function ScanPage() {
               >
                 {exportingCartons
                   ? "Exporting DCU cartons…"
-                  : `Export 15 completed ${dcus.find((dcu) => dcu.id === bulkDcuId)?.name ?? "DCU"} cartons to Google Sheets`}
+                  : `Export ${settings.cartonsPerBatch} completed ${dcus.find((dcu) => dcu.id === bulkDcuId)?.name ?? "DCU"} cartons to Google Sheets`}
               </Button>
             )}
           </div>
@@ -634,7 +642,7 @@ function ScanPage() {
           {cartonBlocks.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border p-6 text-center">
               <p className="text-sm text-muted-foreground">
-                No scanned cartons yet. Complete a 12-meter carton to review it here.
+                No scanned cartons yet. Complete a {settings.metersPerCarton}-meter carton to review it here.
               </p>
             </div>
           ) : (
@@ -654,7 +662,7 @@ function ScanPage() {
                     </p>
                   </div>
                   <Badge variant="outline" className="shrink-0 text-xs">
-                    {carton.scans.length}/12
+                    {carton.scans.length}/{settings.metersPerCarton}
                   </Badge>
                 </button>
               ))}
@@ -699,7 +707,7 @@ function ScanPage() {
           <DialogHeader>
             <DialogTitle>Carton complete</DialogTitle>
             <DialogDescription>
-              12 meters were saved to carton {bulkBoxId}. Approve and name the next carton to resume scanning.
+              {settings.metersPerCarton} meters were saved to carton {bulkBoxId}. Approve and name the next carton to resume scanning.
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -720,14 +728,14 @@ function ScanPage() {
       <Dialog open={dcuCartonLimitReached}>
         <DialogContent className="max-w-sm" onPointerDownOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
           <DialogHeader>
-            <DialogTitle>15 cartons ready for export</DialogTitle>
+            <DialogTitle>{settings.cartonsPerBatch} cartons ready for export</DialogTitle>
             <DialogDescription>
-              This DCU is locked at its 15-carton limit. Export the completed cartons to unlock scanning for this DCU.
+              This DCU is locked at its {settings.cartonsPerBatch}-carton limit. Export the completed cartons to unlock scanning for this DCU.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button className="w-full" onClick={handleExportCompletedCartons} disabled={exportingCartons}>
-              {exportingCartons ? "Exporting…" : "Export 15 cartons to Google Sheets"}
+              {exportingCartons ? "Exporting…" : `Export ${settings.cartonsPerBatch} cartons to Google Sheets`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -738,7 +746,7 @@ function ScanPage() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Carton {reviewCarton?.boxId}</DialogTitle>
-            <DialogDescription>{reviewCarton?.dcuId} · {reviewCarton?.scans.length ?? 0}/12 meters</DialogDescription>
+            <DialogDescription>{reviewCarton?.dcuId} · {reviewCarton?.scans.length ?? 0}/{settings.metersPerCarton} meters</DialogDescription>
           </DialogHeader>
           <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
             {reviewCarton?.scans.map((scan, index) => (
