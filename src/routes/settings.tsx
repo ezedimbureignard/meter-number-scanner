@@ -15,7 +15,6 @@ import {
   getCurrentUser,
   updateUser,
   updateDCU,
-  subscribeStore,
 } from "@/lib/storage";
 import type { DCU, AppSettings, AppUser, UserRole } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -84,14 +83,12 @@ function SettingsPage() {
   const currentUser = getCurrentUser();
 
   useEffect(() => {
-    const refresh = () => {
+    if (hydrated) {
       setDcus(getDCUs());
       setSettings(getSettings());
       setScanCount(getScans().length);
       setUsers(getUsers());
-    };
-    if (hydrated) refresh();
-    return subscribeStore(refresh);
+    }
   }, [hydrated]);
 
   const handleAddDcu = () => {
@@ -106,11 +103,11 @@ function SettingsPage() {
     toast.success("DCU added");
   };
 
-  const handleAddUser = async () => {
+  const handleAddUser = () => {
     if (!newUserName.trim() || !newUserPassword) return toast.error("Enter a user name and password");
     if (newUserRole === "standard" && !newUserDcu) return toast.error("Assign a DCU location to each standard user");
     try {
-      setUsers(await addUser({ name: newUserName.trim(), password: newUserPassword, role: newUserRole, assignedDcuId: newUserRole === "standard" ? newUserDcu : undefined }));
+      setUsers(addUser({ id: crypto.randomUUID(), name: newUserName.trim(), password: newUserPassword, role: newUserRole, assignedDcuId: newUserRole === "standard" ? newUserDcu : undefined, createdAt: new Date().toISOString() }));
       setNewUserName(""); setNewUserPassword(""); setNewUserDcu(""); setNewUserRole("standard"); toast.success("User added");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not add user"); }
   };
@@ -118,24 +115,6 @@ function SettingsPage() {
   const handleRemoveDcu = (id: string) => {
     setDcus(removeDCU(id));
     toast.success("DCU removed");
-  };
-
-  const handleUpdateUser = async (id: string, updates: Parameters<typeof updateUser>[1], successMessage: string) => {
-    try {
-      setUsers(await updateUser(id, updates));
-      toast.success(successMessage);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not update user");
-    }
-  };
-
-  const handleDeleteUser = async (id: string) => {
-    try {
-      setUsers(await deleteUser(id));
-      toast.success("User deleted");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not delete user");
-    }
   };
 
   const updateSettings = (updates: Partial<AppSettings>) => {
@@ -186,9 +165,9 @@ function SettingsPage() {
           <CardContent className="space-y-3">
             <div className="grid grid-cols-2 gap-2"><Input value={newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="User name" /><Input type="password" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} placeholder="Password" /></div>
             <div className="grid grid-cols-2 gap-2"><select value={newUserRole} onChange={(e) => setNewUserRole(e.target.value as UserRole)} className="h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="standard">Standard user</option><option value="admin">Administrator</option></select><select value={newUserDcu} onChange={(e) => setNewUserDcu(e.target.value)} disabled={newUserRole === "admin"} className="h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="">Assign DCU location</option>{dcus.filter((dcu) => !users.some((user) => user.assignedDcuId === dcu.id)).map((dcu) => <option key={dcu.id} value={dcu.id}>{dcu.name}</option>)}</select></div>
-            <Button className="w-full" onClick={() => void handleAddUser()}>Add user</Button>
+            <Button className="w-full" onClick={handleAddUser}>Add user</Button>
             <p className="text-xs text-muted-foreground">A DCU location can be assigned to only one enabled standard user.</p>
-            {users.map((user) => <div key={user.id} className="space-y-2 rounded-lg border border-border p-2.5"><div className="flex items-center justify-between"><div><p className="text-sm font-medium">{user.name} <span className="text-muted-foreground">· {user.role} · {user.enabled === false ? "disabled" : "enabled"}</span></p><p className="text-xs text-muted-foreground">{dcus.find((dcu) => dcu.id === user.assignedDcuId)?.name ?? (user.role === "admin" ? "All locations" : "No location")}</p></div>{user.id !== currentUser.id && <button onClick={() => void handleDeleteUser(user.id)} className="text-muted-foreground hover:text-destructive" aria-label={`Delete ${user.name}`}><Trash2 className="h-4 w-4" /></button>}</div>{user.id !== currentUser.id && <div className="flex flex-wrap gap-2"><select value={user.role} onChange={(e) => { const role = e.target.value as UserRole; void handleUpdateUser(user.id, { role, assignedDcuId: role === "admin" ? null : user.assignedDcuId }, "Role updated"); }} className="h-8 rounded border border-input bg-background px-2 text-xs"><option value="standard">Standard</option><option value="admin">Admin</option></select><select value={user.assignedDcuId ?? ""} disabled={user.role === "admin"} onChange={(e) => void handleUpdateUser(user.id, { assignedDcuId: e.target.value || null }, "Assignment updated")} className="h-8 rounded border border-input bg-background px-2 text-xs"><option value="">No location</option>{dcus.filter((dcu) => dcu.active !== false && (dcu.id === user.assignedDcuId || !users.some((item) => item.id !== user.id && item.enabled !== false && item.assignedDcuId === dcu.id))).map((dcu) => <option key={dcu.id} value={dcu.id}>{dcu.name}</option>)}</select><Button size="sm" variant="outline" onClick={() => void handleUpdateUser(user.id, { enabled: user.enabled === false }, user.enabled === false ? "User enabled" : "User disabled")}>{user.enabled === false ? "Enable" : "Disable"}</Button><Button size="sm" variant="outline" onClick={() => { setPasswordResetFor(user.id); setResetPassword(""); }}>Reset password</Button></div>}{passwordResetFor === user.id && <div className="flex gap-2"><Input type="password" value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} placeholder="New password" /><Button size="sm" onClick={() => { if (!resetPassword) return toast.error("Enter a new password"); void handleUpdateUser(user.id, { password: resetPassword }, "Password reset"); setPasswordResetFor(null); }}>Save</Button></div>}</div>)}
+            {users.map((user) => <div key={user.id} className="space-y-2 rounded-lg border border-border p-2.5"><div className="flex items-center justify-between"><div><p className="text-sm font-medium">{user.name} <span className="text-muted-foreground">· {user.role} · {user.enabled === false ? "disabled" : "enabled"}</span></p><p className="text-xs text-muted-foreground">{dcus.find((dcu) => dcu.id === user.assignedDcuId)?.name ?? (user.role === "admin" ? "All locations" : "No location")}</p></div>{user.id !== currentUser.id && <button onClick={() => { setUsers(deleteUser(user.id)); toast.success("User deleted"); }} className="text-muted-foreground hover:text-destructive" aria-label={`Delete ${user.name}`}><Trash2 className="h-4 w-4" /></button>}</div>{user.id !== currentUser.id && <div className="flex flex-wrap gap-2"><select value={user.role} onChange={(e) => { const role = e.target.value as UserRole; setUsers(updateUser(user.id, { role, assignedDcuId: role === "admin" ? undefined : user.assignedDcuId })); toast.success("Role updated"); }} className="h-8 rounded border border-input bg-background px-2 text-xs"><option value="standard">Standard</option><option value="admin">Admin</option></select><select value={user.assignedDcuId ?? ""} disabled={user.role === "admin"} onChange={(e) => { try { setUsers(updateUser(user.id, { assignedDcuId: e.target.value || undefined })); toast.success("Assignment updated"); } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update assignment"); } }} className="h-8 rounded border border-input bg-background px-2 text-xs"><option value="">No location</option>{dcus.filter((dcu) => dcu.active !== false && (dcu.id === user.assignedDcuId || !users.some((item) => item.id !== user.id && item.enabled !== false && item.assignedDcuId === dcu.id))).map((dcu) => <option key={dcu.id} value={dcu.id}>{dcu.name}</option>)}</select><Button size="sm" variant="outline" onClick={() => setUsers(updateUser(user.id, { enabled: user.enabled === false }))}>{user.enabled === false ? "Enable" : "Disable"}</Button><Button size="sm" variant="outline" onClick={() => { setPasswordResetFor(user.id); setResetPassword(""); }}>Reset password</Button></div>}{passwordResetFor === user.id && <div className="flex gap-2"><Input type="password" value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} placeholder="New password" /><Button size="sm" onClick={() => { if (!resetPassword) return toast.error("Enter a new password"); setUsers(updateUser(user.id, { password: resetPassword })); setPasswordResetFor(null); toast.success("Password reset"); }}>Save</Button></div>}</div>)}
           </CardContent>
         </Card>
         {/* DCU Management */}

@@ -102,13 +102,6 @@ export async function loadStore(): Promise<AppUser | null> {
     supabase.from("app_settings").select("data").eq("id", 1).maybeSingle(),
   ]);
 
-  const loadError = [profiles.error, roles.error, dcus.error, scans.error, settings.error].find(Boolean);
-  if (loadError) {
-    cache.loaded = true;
-    notify();
-    throw new Error(`Unable to load cloud data: ${loadError.message}`);
-  }
-
   const roleFor = (id: string): UserRole =>
     (roles.data ?? []).some((row) => row.user_id === id && row.role === "admin") ? "admin" : "standard";
 
