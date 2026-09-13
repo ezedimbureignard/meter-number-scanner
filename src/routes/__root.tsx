@@ -13,7 +13,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ScanLine, Table, Settings as SettingsIcon, ChartNoAxesCombined } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createFirstAccount, getCurrentUser, loadStore, signIn, signOutUser, subscribeStore } from "@/lib/storage";
+import { getCurrentUser, loadStore, signIn, signOutUser, subscribeStore } from "@/lib/storage";
 import type { AppUser } from "@/lib/types";
 
 import appCss from "../styles.css?url";
@@ -199,35 +199,9 @@ function RootComponent() {
           },
         }}
       />
-      {!ready ? <LoadingScreen /> : user && user.enabled !== false ? <><div className="min-h-screen"><Outlet /></div><BottomNav user={user} onLogout={() => { void signOutUser(); setUser(null); }} /></> : <><AccessScreen onAuthenticated={(nextUser) => { setUser(nextUser); void router.navigate({ to: nextUser.role === "admin" ? "/admin" : "/user" }); }} /><InitialAccountSetup onAuthenticated={(nextUser) => { setUser(nextUser); void router.navigate({ to: nextUser.role === "admin" ? "/admin" : "/user" }); }} /></>}
+      {!ready ? <LoadingScreen /> : user && user.enabled !== false ? <><div className="min-h-screen"><Outlet /></div><BottomNav user={user} onLogout={() => { void signOutUser(); setUser(null); }} /></> : <AccessScreen onAuthenticated={(nextUser) => { setUser(nextUser); void router.navigate({ to: nextUser.role === "admin" ? "/admin" : "/user" }); }} />}
     </QueryClientProvider>
   );
-}
-
-function InitialAccountSetup({ onAuthenticated }: { onAuthenticated: (user: AppUser) => void }) {
-  const [open, setOpen] = useState(false);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const createAccount = async () => {
-    setError("");
-    if (!username.trim() || !password) return setError("Enter a username and password.");
-    try {
-      setSubmitting(true);
-      const user = await createFirstAccount(username, password);
-      onAuthenticated(user);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to create the initial account.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (!open) return <button type="button" className="fixed bottom-6 left-1/2 z-10 -translate-x-1/2 text-sm text-muted-foreground hover:text-primary" onClick={() => setOpen(true)}>Set up the first account</button>;
-
-  return <div className="fixed inset-0 z-20 flex items-center justify-center bg-background/90 px-4"><section className="w-full max-w-sm space-y-4 rounded-xl border border-border bg-card p-6 shadow-lg"><div><h2 className="text-xl font-bold">Create first account</h2><p className="mt-1 text-sm text-muted-foreground">This username-and-password account becomes the administrator. No email address is required.</p></div><Input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" autoComplete="username" /><Input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete="new-password" onKeyDown={(event) => { if (event.key === "Enter") void createAccount(); }} /><p className="text-xs text-muted-foreground">Use 3-64 letters, numbers, dots, hyphens, or underscores. Passwords need at least 6 characters.</p>{error && <p className="text-sm text-destructive">{error}</p>}<div className="flex gap-2"><Button variant="outline" className="flex-1" onClick={() => setOpen(false)} disabled={submitting}>Cancel</Button><Button className="flex-1" onClick={() => void createAccount()} disabled={submitting}>{submitting ? "Creating..." : "Create account"}</Button></div></section></div>;
 }
 
 function AccessScreen({ onAuthenticated }: { onAuthenticated: (user: AppUser) => void }) {

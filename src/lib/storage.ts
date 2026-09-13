@@ -147,12 +147,6 @@ export function usernameToEmail(username: string) {
   return `${normalized || "user"}@metertrack.local`;
 }
 
-export async function createFirstAccount(username: string, password: string): Promise<AppUser> {
-  const { createInitialAccount } = await import("./bootstrap.functions");
-  await createInitialAccount({ data: { username, password } });
-  return signIn(username, password);
-}
-
 export async function signIn(username: string, password: string): Promise<AppUser> {
   const { error } = await supabase.auth.signInWithPassword({ email: usernameToEmail(username), password });
   if (error) throw new Error("Incorrect username or password.");
