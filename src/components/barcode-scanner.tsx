@@ -20,6 +20,8 @@ interface BarcodeScannerProps {
   validate?: (text: string) => boolean;
   /** Minimum time between camera detections, in milliseconds. */
   scanCooldownMs?: number;
+  /** Immediately stop the camera and reject input while a workflow gate is active. */
+  paused?: boolean;
 }
 
 export function BarcodeScanner({
@@ -28,6 +30,7 @@ export function BarcodeScanner({
   vibrateOnScan,
   validate,
   scanCooldownMs = 1500,
+  paused = false,
 }: BarcodeScannerProps) {
   const scannerRef = useRef<any>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -39,6 +42,7 @@ export function BarcodeScanner({
   const [torchSupported, setTorchSupported] = useState(false);
   const [cameras, setCameras] = useState<{ id: string; label: string }[]>([]);
   const [cameraIndex, setCameraIndex] = useState(0);
+  const resumeAfterPauseRef = useRef(false);
 
   const lastScanRef = useRef<{ text: string; time: number }>({
     text: "",
@@ -72,14 +76,14 @@ export function BarcodeScanner({
       // Barcode decoders can emit several reads per second. Throttle every
       // camera detection (not just repeated text) so meters are not saved too
       // quickly when a carton is being scanned.
-      if (now - last.time < scanCooldownMs) return;
+      if (paused || now - last.time < scanCooldownMs) return;
       lastScanRef.current = { text, time: now };
 
       const accepted = validateRef.current ? validateRef.current(text) : true;
       feedback(accepted);
       if (accepted) onScanRef.current(text);
     },
-    [feedback, scanCooldownMs],
+    [feedback, paused, scanCooldownMs],
   );
 
   /** Pick the best rear camera: prefer a "back"/"rear" labelled device. */
@@ -179,6 +183,20 @@ export function BarcodeScanner({
     setIsScanning(false);
     setTorchOn(false);
   };
+
+  useEffect(() => {
+    if (paused) {
+      resumeAfterPauseRef.current = isScanning;
+      if (scannerRef.current) void stopScanner();
+      return;
+    }
+    if (resumeAfterPauseRef.current && !isScanning) {
+      resumeAfterPauseRef.current = false;
+      void startScanner();
+    }
+    // Only pause-state changes should stop/resume the camera.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paused]);
 
   const toggleTorch = async () => {
     if (!scannerRef.current) return;
@@ -281,7 +299,7 @@ export function BarcodeScanner({
 
       <div className="flex gap-2">
         {!isScanning ? (
-          <Button onClick={() => startScanner()} className="flex-1" size="lg">
+          <Button onClick={() => startScanner()} className="flex-1" size="lg" disabled={paused}>
             <Camera className="mr-2 h-4 w-4" /> Start Scanner
           </Button>
         ) : (
