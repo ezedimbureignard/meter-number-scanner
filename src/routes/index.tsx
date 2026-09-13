@@ -82,7 +82,7 @@ export const Route = createFileRoute("/")({
   component: ScanPage,
 });
 
-function ScanPage() {
+export function ScanPage() {
   const hydrated = useHydrated();
   const loadSheet = useServerFn(fetchSheetData);
   const checkSheetConnection = useServerFn(checkSheetsConnection);
@@ -223,15 +223,16 @@ function ScanPage() {
         setSheetSerials(new Set(result.serials.map(normalizeSerial)));
 
         // Merge the sheet's DCU locations into the local list
-        const existing = getDCUs();
-        for (const name of result.dcus) {
-          if (!existing.some((d) => d.id === name)) {
-            addDCU({ id: name, name });
+        const user = getCurrentUser();
+        if (user?.role === "admin") {
+          const existing = getDCUs();
+          for (const name of result.dcus) {
+            if (!existing.some((d) => d.id === name)) addDCU({ id: name, name });
           }
         }
-      const user = getCurrentUser();
       setCurrentUser(user);
-      setDcus(user?.role === "standard" ? getDCUs().filter((dcu) => dcu.id === user.assignedDcuId) : getDCUs());
+      const locations = getDCUs().filter((dcu) => dcu.active !== false);
+      setDcus(user?.role === "standard" ? locations.filter((dcu) => dcu.id === user.assignedDcuId) : locations);
 
         // Suggest the next carton number
         if (result.lastCarton > 0) {
@@ -260,7 +261,10 @@ function ScanPage() {
   useEffect(() => {
     if (!hydrated) return;
     refreshRecent();
-    setDcus(getDCUs());
+    const user = getCurrentUser();
+    setCurrentUser(user);
+    const locations = getDCUs().filter((dcu) => dcu.active !== false);
+    setDcus(user?.role === "standard" ? locations.filter((dcu) => dcu.id === user.assignedDcuId) : locations);
     const s = getSettings();
     setSettings(s);
     setSessions(getSessions());
@@ -309,7 +313,7 @@ function ScanPage() {
         ).length;
         if (savedInCarton >= settings.metersPerCarton) return;
         const scan = createScan(text, bulkDcuId, bulkBoxId, "assigned", "", activeSession?.id, true);
-        addScan(scan);
+        try { addScan(scan); } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to save scan"); return; }
         const newCount = savedInCarton + 1;
         setBulkCount(newCount);
         refreshRecent();
@@ -331,7 +335,7 @@ function ScanPage() {
         toast.success("Barcode detected", { description: text });
         if (settings?.autoScan && dcuId && boxId) {
           const scan = createScan(text, dcuId, boxId, status, "", activeSession?.id);
-          addScan(scan);
+          try { addScan(scan); } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to save scan"); return; }
           refreshRecent();
           toast.success("Auto-saved", { description: text });
           setScannedSerial("");
@@ -356,7 +360,7 @@ function ScanPage() {
       return;
     }
     if (!checkDuplicate(serial)) return;
-    addScan(createScan(serial, dcuId, boxId.trim(), status, "", activeSession?.id));
+    try { addScan(createScan(serial, dcuId, boxId.trim(), status, "", activeSession?.id)); } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to save scan"); return; }
     refreshRecent();
     toast.success("Scan saved", { description: serial });
     setScannedSerial("");

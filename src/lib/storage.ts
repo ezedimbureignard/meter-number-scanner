@@ -1,4 +1,4 @@
-import type { MeterScan, DCU, AppSettings, ScanSession, CartonManifest, AppUser } from "./types";
+import type { MeterScan, DCU, AppSettings, ScanSession, CartonManifest, AppUser, UserRole } from "./types";
 
 const SCANS_KEY = "metertrack_scans";
 const DCUS_KEY = "metertrack_dcus";
@@ -7,6 +7,8 @@ const SESSIONS_KEY = "metertrack_sessions";
 const MANIFESTS_KEY = "metertrack_manifests";
 const USERS_KEY = "metertrack_users";
 const CURRENT_USER_KEY = "metertrack_current_user";
+
+export const MASTER_DCU_SITES = ["Wuese", "Lobi", "Utonkon", "Uduo", "Orakamu", "Adabu", "Udeni", "Assakio", "Ajio Shangev-Ya", "Azara Maisamri", "Saminaka", "Betse"];
 
 function read<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -22,7 +24,23 @@ function write<T>(key: string, value: T) {
 /* ── Scans ── */
 
 export function getScans(): MeterScan[] {
-  return read<MeterScan[]>(SCANS_KEY, []);
+  const user = getCurrentUser();
+  const scans = read<MeterScan[]>(SCANS_KEY, []);
+  if (!user || user.enabled === false) return [];
+  return user.role === "standard" ? scans.filter((scan) => scan.dcuId === user.assignedDcuId) : scans;
+}
+
+function getAllScans(): MeterScan[] { return read<MeterScan[]>(SCANS_KEY, []); }
+
+function requireAdmin() {
+  if (getCurrentUser()?.role !== "admin") throw new Error("Administrator permission required");
+}
+
+function requireLocationAccess(dcuId: string) {
+  const user = getCurrentUser();
+  if (!user) throw new Error("Sign in is required");
+  if (!user.enabled) throw new Error("This user account is disabled");
+  if (user.role === "standard" && user.assignedDcuId !== dcuId) throw new Error("You are not assigned to this DCU location");
 }
 
 export function saveScans(scans: MeterScan[]) {
@@ -30,7 +48,11 @@ export function saveScans(scans: MeterScan[]) {
 }
 
 export function addScan(scan: MeterScan): MeterScan[] {
-  const scans = getScans();
+  requireLocationAccess(scan.dcuId);
+  const settings = getSettings();
+  const scans = getAllScans();
+  const cartonCount = scans.filter((item) => item.dcuId === scan.dcuId && item.boxId === scan.boxId).length;
+  if (cartonCount >= settings.metersPerCarton) throw new Error(`The scan limit of ${settings.metersPerCarton} has been reached for this carton`);
   scans.unshift(scan);
   saveScans(scans);
   return scans;
@@ -43,7 +65,8 @@ export function addScans(newScans: MeterScan[]): MeterScan[] {
 }
 
 export function updateScan(id: string, updates: Partial<MeterScan>): MeterScan[] {
-  const scans = getScans();
+  requireAdmin();
+  const scans = getAllScans();
   const idx = scans.findIndex((s) => s.id === id);
   if (idx !== -1) {
     scans[idx] = { ...scans[idx], ...updates } as MeterScan;
@@ -53,7 +76,8 @@ export function updateScan(id: string, updates: Partial<MeterScan>): MeterScan[]
 }
 
 export function deleteScan(id: string): MeterScan[] {
-  const scans = getScans().filter((s) => s.id !== id);
+  requireAdmin();
+  const scans = getAllScans().filter((s) => s.id !== id);
   saveScans(scans);
   return scans;
 }
@@ -127,7 +151,9 @@ export function deleteManifest(id: string) {
 /* ── DCUs ── */
 
 export function getDCUs(): DCU[] {
-  return read<DCU[]>(DCUS_KEY, []);
+  const existing = read<DCU[]>(DCUS_KEY, []);
+  const master = MASTER_DCU_SITES.map((name) => existing.find((dcu) => dcu.id === name) ?? ({ id: name, name, site: name, active: true }));
+  return [...master, ...existing.filter((dcu) => !master.some((site) => site.id === dcu.id))];
 }
 
 export function saveDCUs(dcus: DCU[]) {
@@ -135,6 +161,7 @@ export function saveDCUs(dcus: DCU[]) {
 }
 
 export function addDCU(dcu: DCU) {
+  requireAdmin();
   const dcus = getDCUs();
   if (!dcus.some((d) => d.id === dcu.id)) {
     dcus.push(dcu);
@@ -144,30 +171,63 @@ export function addDCU(dcu: DCU) {
 }
 
 export function removeDCU(id: string) {
-  const dcus = getDCUs().filter((d) => d.id !== id);
+  requireAdmin();
+  const dcus = read<DCU[]>(DCUS_KEY, []);
+  if (MASTER_DCU_SITES.includes(id)) {
+    const index = dcus.findIndex((dcu) => dcu.id === id);
+    if (index === -1) dcus.push({ id, name: id, site: id, active: false });
+    else dcus[index] = { ...dcus[index], active: false };
+  } else {
+    const index = dcus.findIndex((dcu) => dcu.id === id);
+    if (index !== -1) dcus[index] = { ...dcus[index], active: false };
+  }
   saveDCUs(dcus);
-  return dcus;
+  return getDCUs();
+}
+
+export function updateDCU(id: string, updates: Partial<Pick<DCU, "name" | "site" | "active">>) {
+  requireAdmin();
+  const dcus = read<DCU[]>(DCUS_KEY, []);
+  const existing = getDCUs().find((dcu) => dcu.id === id);
+  if (!existing) throw new Error("DCU location not found");
+  const index = dcus.findIndex((dcu) => dcu.id === id);
+  const next = { ...existing, ...updates };
+  if (index === -1) dcus.push(next); else dcus[index] = next;
+  saveDCUs(dcus); return getDCUs();
 }
 
 /* ── Users / local access control ── */
-export function getUsers(): AppUser[] { return read<AppUser[]>(USERS_KEY, []); }
+export function getUsers(): AppUser[] { requireAdmin(); return read<AppUser[]>(USERS_KEY, []); }
+export function hasUsers(): boolean { return readUsers().length > 0; }
+function readUsers(): AppUser[] { return read<AppUser[]>(USERS_KEY, []); }
 export function getCurrentUser(): AppUser | null {
   const id = read<string | null>(CURRENT_USER_KEY, null);
-  return id ? getUsers().find((user) => user.id === id) ?? null : null;
+  return id ? readUsers().find((user) => user.id === id) ?? null : null;
 }
 export function addUser(user: AppUser): AppUser[] {
-  const users = getUsers();
+  const existing = readUsers();
+  if (existing.length) requireAdmin();
+  const users = existing;
   if (users.some((item) => item.name.toLocaleLowerCase() === user.name.toLocaleLowerCase())) throw new Error("That user name is already in use");
-  if (user.assignedDcuId && users.some((item) => item.assignedDcuId === user.assignedDcuId)) throw new Error("That DCU location is already assigned to another user");
-  const next = [...users, user]; write(USERS_KEY, next); return next;
+  if (user.assignedDcuId && users.some((item) => item.enabled !== false && item.assignedDcuId === user.assignedDcuId)) throw new Error("That DCU location is already assigned to another enabled user");
+  const next = [...users, { ...user, enabled: user.enabled ?? true }]; write(USERS_KEY, next); return next;
 }
 export function deleteUser(id: string): AppUser[] {
-  const next = getUsers().filter((user) => user.id !== id); write(USERS_KEY, next);
+  requireAdmin();
+  const next = readUsers().filter((user) => user.id !== id); write(USERS_KEY, next);
   if (read<string | null>(CURRENT_USER_KEY, null) === id) write(CURRENT_USER_KEY, null);
   return next;
 }
-export function login(name: string, password: string): AppUser | null {
-  const user = getUsers().find((item) => item.name.toLocaleLowerCase() === name.trim().toLocaleLowerCase() && item.password === password);
+export function updateUser(id: string, updates: Partial<Pick<AppUser, "password" | "role" | "assignedDcuId" | "enabled">>): AppUser[] {
+  requireAdmin();
+  const users = readUsers();
+  const next = users.map((user) => user.id === id ? { ...user, ...updates } : user);
+  const assignments = next.filter((user) => user.enabled !== false && user.assignedDcuId).map((user) => user.assignedDcuId);
+  if (new Set(assignments).size !== assignments.length) throw new Error("Each active DCU location can be assigned to only one user");
+  write(USERS_KEY, next); return next;
+}
+export function login(name: string, password: string, role: UserRole): AppUser | null {
+  const user = readUsers().find((item) => item.name.toLocaleLowerCase() === name.trim().toLocaleLowerCase() && item.password === password && item.role === role && item.enabled !== false);
   if (user) write(CURRENT_USER_KEY, user.id); return user ?? null;
 }
 export function logout() { write(CURRENT_USER_KEY, null); }
@@ -200,6 +260,7 @@ export function getSettings(): AppSettings {
 }
 
 export function saveSettings(settings: AppSettings) {
+  requireAdmin();
   write(SETTINGS_KEY, settings);
 }
 

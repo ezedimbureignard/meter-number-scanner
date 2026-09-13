@@ -13,8 +13,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { ScanLine, Table, Settings as SettingsIcon, ChartNoAxesCombined } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { addUser, getCurrentUser, getUsers, login, logout } from "@/lib/storage";
-import type { AppUser } from "@/lib/types";
+import { addUser, getCurrentUser, hasUsers, login, logout } from "@/lib/storage";
+import type { AppUser, UserRole } from "@/lib/types";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -85,10 +85,10 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 function BottomNav({ user, onLogout }: { user: AppUser; onLogout: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const tabs = [
-    { to: "/" as const, label: "Scan", icon: ScanLine },
+    { to: "/user" as const, label: "Scan", icon: ScanLine },
     { to: "/inventory" as const, label: "Inventory", icon: Table },
     ...(user.role === "admin" ? [{ to: "/operations" as const, label: "Operations", icon: ChartNoAxesCombined }] : []),
-    ...(user.role === "admin" ? [{ to: "/settings" as const, label: "Settings", icon: SettingsIcon }] : []),
+    ...(user.role === "admin" ? [{ to: "/admin" as const, label: "Admin", icon: SettingsIcon }] : []),
   ];
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur">
@@ -176,9 +176,12 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [user, setUser] = useState<AppUser | null>(null);
   const [ready, setReady] = useState(false);
-  useEffect(() => { setUser(getCurrentUser()); setReady(true); }, []);
+  useEffect(() => { const current = getCurrentUser(); if (current?.enabled === false) logout(); else setUser(current); setReady(true); }, []);
+  useEffect(() => { if (user && pathname === "/") void router.navigate({ to: user.role === "admin" ? "/admin" : "/user", replace: true }); }, [user, pathname, router]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -192,7 +195,7 @@ function RootComponent() {
           },
         }}
       />
-      {!ready ? null : user ? <><div className="min-h-screen"><Outlet /></div><BottomNav user={user} onLogout={() => { logout(); setUser(null); }} /></> : <AccessScreen onAuthenticated={setUser} />}
+      {!ready ? null : user && user.enabled !== false ? <><div className="min-h-screen"><Outlet /></div><BottomNav user={user} onLogout={() => { logout(); setUser(null); }} /></> : <AccessScreen onAuthenticated={(nextUser) => { setUser(nextUser); void router.navigate({ to: nextUser.role === "admin" ? "/admin" : "/user" }); }} />}
     </QueryClientProvider>
   );
 }
@@ -201,20 +204,22 @@ function AccessScreen({ onAuthenticated }: { onAuthenticated: (user: AppUser) =>
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const firstAccount = typeof window !== "undefined" && getUsers().length === 0;
+  const [role, setRole] = useState<UserRole>("standard");
+  const firstAccount = typeof window !== "undefined" && !hasUsers();
   const submit = () => {
     setError("");
     if (!name.trim() || !password) return setError("Enter a name and password.");
     try {
       if (firstAccount) {
-        const user: AppUser = { id: crypto.randomUUID(), name: name.trim(), password, role: "admin", createdAt: new Date().toISOString() };
-        addUser(user); login(user.name, password); onAuthenticated(user);
+        if (role !== "admin") return setError("The first account must be an administrator.");
+        const user: AppUser = { id: crypto.randomUUID(), name: name.trim(), password, role: "admin", enabled: true, createdAt: new Date().toISOString() };
+        addUser(user); login(user.name, password, role); onAuthenticated(user);
       } else {
-        const user = login(name, password);
-        if (!user) return setError("Incorrect name or password.");
+        const user = login(name, password, role);
+        if (!user) return setError("Incorrect name, password, role, or disabled account.");
         onAuthenticated(user);
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to sign in."); }
   };
-  return <main className="flex min-h-screen items-center justify-center bg-background px-4"><section className="w-full max-w-sm space-y-5 rounded-xl border border-border bg-card p-6 shadow-sm"><div><h1 className="text-2xl font-bold">MeterTrack</h1><p className="mt-1 text-sm text-muted-foreground">{firstAccount ? "Create the first administrator account." : "Sign in to continue."}</p></div><div className="space-y-3"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" autoComplete="username" /><Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" autoComplete="current-password" onKeyDown={(e) => e.key === "Enter" && submit()} />{error && <p className="text-sm text-destructive">{error}</p>}<Button className="w-full" onClick={submit}>{firstAccount ? "Create administrator" : "Sign in"}</Button></div></section></main>;
+  return <main className="flex min-h-screen items-center justify-center bg-background px-4"><section className="w-full max-w-sm space-y-5 rounded-xl border border-border bg-card p-6 shadow-sm"><div><h1 className="text-2xl font-bold">MeterTrack</h1><p className="mt-1 text-sm text-muted-foreground">{firstAccount ? "Create the first administrator account." : "Sign in to continue."}</p></div><div className="space-y-3"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" autoComplete="username" /><Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" autoComplete="current-password" onKeyDown={(e) => e.key === "Enter" && submit()} /><select value={role} onChange={(e) => setRole(e.target.value as UserRole)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="standard">Standard user</option><option value="admin">Administrator</option></select>{error && <p className="text-sm text-destructive">{error}</p>}<Button className="w-full" onClick={submit}>{firstAccount ? "Create administrator" : "Sign in"}</Button></div></section></main>;
 }

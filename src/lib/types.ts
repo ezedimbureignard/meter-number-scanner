@@ -34,6 +34,8 @@ export interface CartonManifest {
 export interface DCU {
   id: string;
   name: string;
+  site?: string;
+  active?: boolean;
 }
 
 export type UserRole = "admin" | "standard";
@@ -45,6 +47,7 @@ export interface AppUser {
   password: string;
   role: UserRole;
   assignedDcuId?: string;
+  enabled?: boolean;
   createdAt: string;
 }
 

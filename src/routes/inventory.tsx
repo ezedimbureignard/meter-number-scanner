@@ -91,7 +91,8 @@ function InventoryPage() {
       const user = getCurrentUser();
       setCurrentUser(user);
       setScans(user?.role === "standard" ? getScans().filter((scan) => scan.dcuId === user.assignedDcuId) : getScans());
-      setDcus(user?.role === "standard" ? getDCUs().filter((dcu) => dcu.id === user.assignedDcuId) : getDCUs());
+      const locations = getDCUs().filter((dcu) => dcu.active !== false);
+      setDcus(user?.role === "standard" ? locations.filter((dcu) => dcu.id === user.assignedDcuId) : locations);
       setSettings(getSettings());
       checkSheetsConnection().then((r) => setSheetsConnected(r.connected));
     }
