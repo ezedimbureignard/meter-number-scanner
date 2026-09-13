@@ -14,16 +14,173 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      app_settings: {
+        Row: {
+          data: Json
+          id: number
+          updated_at: string
+        }
+        Insert: {
+          data?: Json
+          id?: number
+          updated_at?: string
+        }
+        Update: {
+          data?: Json
+          id?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      dcus: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          site: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id: string
+          name: string
+          site?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          site?: string | null
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          assigned_dcu_id: string | null
+          created_at: string
+          enabled: boolean
+          id: string
+          username: string
+        }
+        Insert: {
+          assigned_dcu_id?: string | null
+          created_at?: string
+          enabled?: boolean
+          id: string
+          username: string
+        }
+        Update: {
+          assigned_dcu_id?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          username?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_assigned_dcu_id_fkey"
+            columns: ["assigned_dcu_id"]
+            isOneToOne: false
+            referencedRelation: "dcus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scans: {
+        Row: {
+          box_id: string
+          bulk_carton: boolean
+          created_at: string
+          created_by: string | null
+          dcu_id: string
+          id: string
+          meter_serial: string
+          normalized_serial: string
+          notes: string
+          scan_date_time: string
+          session_id: string | null
+          sheets_exported_at: string | null
+          status: string
+        }
+        Insert: {
+          box_id: string
+          bulk_carton?: boolean
+          created_at?: string
+          created_by?: string | null
+          dcu_id: string
+          id?: string
+          meter_serial: string
+          normalized_serial: string
+          notes?: string
+          scan_date_time?: string
+          session_id?: string | null
+          sheets_exported_at?: string | null
+          status?: string
+        }
+        Update: {
+          box_id?: string
+          bulk_carton?: boolean
+          created_at?: string
+          created_by?: string | null
+          dcu_id?: string
+          id?: string
+          meter_serial?: string
+          normalized_serial?: string
+          notes?: string
+          scan_date_time?: string
+          session_id?: string | null
+          sheets_exported_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scans_dcu_id_fkey"
+            columns: ["dcu_id"]
+            isOneToOne: false
+            referencedRelation: "dcus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      can_access_dcu: { Args: { _dcu_id: string }; Returns: boolean }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "standard"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +307,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "standard"],
+    },
   },
 } as const
