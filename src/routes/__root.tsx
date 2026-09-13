@@ -13,8 +13,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { ScanLine, Table, Settings as SettingsIcon, ChartNoAxesCombined } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getCurrentUser, hasUsers, login, logout } from "@/lib/storage";
-import type { AppUser, UserRole } from "@/lib/types";
+import { getCurrentUser, loadStore, signIn, signOutUser, subscribeStore } from "@/lib/storage";
+import type { AppUser } from "@/lib/types";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -180,7 +180,11 @@ function RootComponent() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [user, setUser] = useState<AppUser | null>(null);
   const [ready, setReady] = useState(false);
-  useEffect(() => { const current = getCurrentUser(); if (current?.enabled === false) logout(); else setUser(current); setReady(true); }, []);
+  useEffect(() => {
+    const unsubscribe = subscribeStore(() => setUser(getCurrentUser()));
+    void loadStore().finally(() => setReady(true));
+    return unsubscribe;
+  }, []);
   useEffect(() => { if (user && pathname === "/") void router.navigate({ to: user.role === "admin" ? "/admin" : "/user", replace: true }); }, [user, pathname, router]);
 
   return (
@@ -195,7 +199,7 @@ function RootComponent() {
           },
         }}
       />
-      {!ready ? null : user && user.enabled !== false ? <><div className="min-h-screen"><Outlet /></div><BottomNav user={user} onLogout={() => { logout(); setUser(null); }} /></> : <AccessScreen onAuthenticated={(nextUser) => { setUser(nextUser); void router.navigate({ to: nextUser.role === "admin" ? "/admin" : "/user" }); }} />}
+      {!ready ? <LoadingScreen /> : user && user.enabled !== false ? <><div className="min-h-screen"><Outlet /></div><BottomNav user={user} onLogout={() => { void signOutUser(); setUser(null); }} /></> : <AccessScreen onAuthenticated={(nextUser) => { setUser(nextUser); void router.navigate({ to: nextUser.role === "admin" ? "/admin" : "/user" }); }} />}
     </QueryClientProvider>
   );
 }
@@ -204,17 +208,17 @@ function AccessScreen({ onAuthenticated }: { onAuthenticated: (user: AppUser) =>
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [role, setRole] = useState<UserRole>("standard");
-  const hasConfiguredUsers = typeof window !== "undefined" && hasUsers();
-  const submit = () => {
+  const [submitting, setSubmitting] = useState(false);
+  const submit = async () => {
     setError("");
     if (!name.trim() || !password) return setError("Enter a name and password.");
     try {
-      if (!hasConfiguredUsers) return setError("No user accounts are configured. Contact an administrator.");
-      const user = login(name, password, role);
-      if (!user) return setError("Incorrect name, password, role, or disabled account.");
+      setSubmitting(true);
+      const user = await signIn(name, password);
       onAuthenticated(user);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to sign in."); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to sign in."); } finally { setSubmitting(false); }
   };
-  return <main className="flex min-h-screen items-center justify-center bg-background px-4"><section className="w-full max-w-sm space-y-5 rounded-xl border border-border bg-card p-6 shadow-sm"><div><h1 className="text-2xl font-bold">MeterTrack</h1><p className="mt-1 text-sm text-muted-foreground">Sign in with the credentials issued by your administrator.</p></div>{hasConfiguredUsers ? <div className="space-y-3"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Username" autoComplete="username" /><Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" autoComplete="current-password" onKeyDown={(e) => e.key === "Enter" && submit()} /><select value={role} onChange={(e) => setRole(e.target.value as UserRole)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="standard">Standard user</option><option value="admin">Administrator</option></select>{error && <p className="text-sm text-destructive">{error}</p>}<Button className="w-full" onClick={submit}>Sign in</Button></div> : <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">No user accounts are configured. Contact the system administrator.</p>}</section></main>;
+  return <main className="flex min-h-screen items-center justify-center bg-background px-4"><section className="w-full max-w-sm space-y-5 rounded-xl border border-border bg-card p-6 shadow-sm"><div><h1 className="text-2xl font-bold">MeterTrack</h1><p className="mt-1 text-sm text-muted-foreground">Sign in with the credentials issued by your administrator.</p></div><div className="space-y-3"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Username" autoComplete="username" /><Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" autoComplete="current-password" onKeyDown={(e) => { if (e.key === "Enter") void submit(); }} />{error && <p className="text-sm text-destructive">{error}</p>}<Button className="w-full" onClick={() => void submit()} disabled={submitting}>{submitting ? "Signing in…" : "Sign in"}</Button></div></section></main>;
 }
+
+function LoadingScreen() { return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading secure workspace…</div>; }
